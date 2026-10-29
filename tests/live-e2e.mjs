@@ -19,6 +19,7 @@ await db.exec(read('supabase/migrations/20261030100000_central.sql'));
 await db.exec(read('supabase/migrations/20261030100100_central_storage.sql'));
 await db.exec(read('supabase/migrations/20261030100200_central_hardening.sql'));
 await db.exec(read('supabase/migrations/20261031100000_notifications.sql'));
+await db.exec(read('supabase/migrations/20261101100000_deductions_and_lists.sql'));
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
 const retType = {};
 let q = Promise.resolve();
@@ -213,12 +214,41 @@ try {
   await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=hod-ok]');
   if (await ev(() => S.invoices[0].status) !== 'hod_ok') throw new Error('HOD step failed'); await signOut();
   await signIn('fowzan'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=final-ok]');
+  // deduction and remark before payment
+  await click('main [data-act=adjust]'); await p.selectOption('#dd-t0', 'advance'); await fill({'dd-a0':50, 'dd-n0':'Advance paid on set'}); await p.fill('#dd-rem', 'Return the walkie');
+  if (!(await text('#dd-calc')).includes('4,405')) errs.push('deduction preview wrong: ' + await text('#dd-calc'));
+  await click('form[data-form=adjust] button[type=submit]');
+  const inv0 = await ev(() => S.invoices[0]);
+  if (inv0.deduction !== 50 || inv0.payable !== 4405 || inv0.remarks !== 'Return the walkie') throw new Error('deduction not saved: ' + JSON.stringify(inv0) + ' ' + await text('#dd-err').catch(() => ''));
+  if (!(await text('main tbody')).includes('Return the walkie')) errs.push('remark not shown in the invoice table');
+  ok('owner took off ₹50 advance with a remark; payable now ₹4,405');
   await click('.rail [data-id=finance]'); await p.check('input[data-change=selall]'); await p.waitForTimeout(150); await click('[data-act=payrun]');
   await p.fill('#md-v', 'HDFCBATCH001'); await click('form[data-form=payrun] button[type=submit]');
   if (await ev(() => S.invoices[0].status) !== 'paid') throw new Error('payment failed: ' + await text('#md-err').catch(() => ''));
   ok('approved and paid');
   await click('[data-act=ftab][data-id=tally]'); await click('[data-act=tally-preview]'); await click('[data-act=tally-mark]');
   if (await ev(() => S.exports.length) !== 1) throw new Error('Tally batch not recorded'); ok('sent to Tally as ' + await ev(() => S.exports[0].id));
+  // artists, crew and vendors listed apart
+  await click('.rail [data-id=people]');
+  for (const o of [{n:'Rhea Kapoor', k:'cast', j:'Lead Actor', r:60000}, {n:'Shree Vans', k:'vendor', j:'Vanity vans', r:8000}]){
+    await click('[data-act=onboard]'); await fill({'ob-name':o.n, 'ob-rate':o.r, 'ob-phone':'98200 1' + o.r}); await p.selectOption('#ob-kind', o.k); await p.selectOption('#ob-job', o.j);
+    await click('form[data-form=onboard] button[type=submit]'); if (!(await p.$('.dialog pre'))) throw new Error(o.n + ' not onboarded: ' + await text('#ob-err').catch(() => '')); await click('.dialog [data-act=close-modal]');
+  }
+  const kinds = await ev(() => Object.fromEntries(S.members.filter(m => !m.synthetic).map(m => [user(m.userId).name, m.kind])));
+  if (kinds['Rhea Kapoor'] !== 'cast' || kinds['Shree Vans'] !== 'vendor' || kinds['Imran Shaikh'] !== 'crew') errs.push('lists wrong: ' + JSON.stringify(kinds));
+  await click('[data-act=pk][data-id=cast]'); const artists = await p.$$eval('#people-rows tr', r => r.map(x => x.textContent));
+  if (artists.length !== 1 || !artists[0].includes('Rhea')) errs.push('Artists tab shows: ' + artists.join(' | '));
+  await click('[data-act=pk][data-id=vendor]'); const vend = await p.$$eval('#people-rows tr', r => r.map(x => x.textContent));
+  if (vend.length !== 1 || !vend[0].includes('Shree')) errs.push('Vendors tab shows: ' + vend.join(' | '));
+  await click('[data-act=pk][data-id=all]'); ok('People splits into Artists, Crew and Vendors');
+  await click('.rail [data-id=agreements]'); await click('[data-act=agk][data-id=cast]');
+  if (!(await text('main tbody')).includes('Artist agreement')) errs.push('Agreements artist tab missing the artist');
+  await click('[data-act=agk][data-id=crew]'); await click('[data-act=agf][data-id=countersigned]');
+  const apr = await p.$$eval('main tbody tr', r => r.map(x => x.textContent)); if (apr.length !== 1 || !apr[0].includes('Imran')) errs.push('approved crew agreements: ' + apr.join(' | '));
+  await click('[data-act=agk][data-id=all]'); await over('agreements'); ok('Agreements filter by list and by status');
+  const sheets = await ev(() => Object.keys(workbookData(U.pid))); if (!['Artists','Crew','Vendors'].every(k => sheets.includes(k))) errs.push('Excel sheets: ' + sheets.join(', ')); else ok('Excel has separate Artists, Crew and Vendors sheets');
+  const inv1 = await ev(() => workbookData(U.pid).Invoices[0]); if (inv1['Deductions (₹)'] !== 50 || inv1.Remarks !== 'Return the walkie') errs.push('Excel invoice row lacks deductions: ' + JSON.stringify(inv1));
+  if (await p.$('main [data-act=adjust]')) errs.push('deductions still editable after Tally');
   await click('.rail [data-id=reports]'); await over('reports');
   const [dl] = await Promise.all([p.waitForEvent('download', {timeout:5000}).catch(() => null), click('[data-act=excel]')]);
   if (!dl) errs.push('no Excel download'); else ok('Excel downloaded: ' + dl.suggestedFilename());
@@ -246,6 +276,7 @@ try {
   if (!arrived) errs.push('the deal change did not reach the crew member’s open screen'); else ok(`owner’s change reached the crew member live (now ${arrived} unread)`);
   await q2.click('.bell'); await q2.waitForTimeout(200);
   const items = await q2.$$eval('.notes li button', b => b.map(x => x.querySelector('b').textContent));
+  if (!items.some(t => /Deduction on invoice IS-001/.test(t))) errs.push('crew not told about the deduction: ' + items.join(' | '));
   if (!items.some(t => /paid/.test(t)) || !items.some(t => /approved/.test(t))) errs.push('notification list is missing payment/approval: ' + items.join(' | ')); else ok('bell lists: ' + items.slice(0, 4).join(' | '));
   const o2 = await q2.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o2 > 1) errs.push('phone: sideways scroll with notifications open');
   await q2.screenshot({path:'/tmp/crewdesk-notes-phone.png'});

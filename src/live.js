@@ -98,7 +98,8 @@ async function load(){
       rate:null, unit:'month', joining:'', end:'', tds:'none', terms:30, code:'—', ag:{status:'countersigned'}, synthetic:true})); });
   next.invoices = invs.map(i => ({id:i.id, pid:i.production_id, memberId:i.crew_id, by:i.user_id, dept:i.dept || '', no:i.no, from:i.period_from, to:i.period_to, qty:+i.qty, rate:+i.rate, unit:i.unit,
     desc:i.descr || '', amount:+i.amount, gstRate:+i.gst_rate, gst:+i.gst, tdsKey:i.tds_key, tds:+i.tds, payable:+i.payable, status:i.status, at:ts(i.submitted_at),
-    approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment}));
+    approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment,
+    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || ''}));
   next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '',
     att:checks.filter(c => c.day_id === d.id && !c.removed_at).map(c => c.user_id)}));
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
@@ -208,6 +209,8 @@ Object.assign(FORMS, {
     if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:+v('rv-gst') || 0, desc:v('rv-desc')}}, 'rv-err') === FAIL) return;
     U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted to your HOD`); },
   pay: async () => { if (await call('pay_invoices', {p_production:U.pid, p_ids:[U.modal.id], p_ref:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; done('Marked paid'); },
+  adjust: async () => { const items = dedRows().map(({type, amount, note}) => ({type, amount, note}));
+    const r = await call('set_invoice_adjustments', {p_id:U.modal.id, p_items:items, p_remarks:v('dd-rem')}, 'dd-err'); if (r === FAIL) return; U.modal = null; done(`Saved · will pay ${inr(+r)}`); },
   reject: async () => { if (await call('reject_crew_invoice', {p_id:U.modal.id, p_reason:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; U.drawer = null; done('Invoice rejected; they’ll see the reason'); },
   payrun: async () => { const n = await call('pay_invoices', {p_production:U.pid, p_ids:U.sel, p_ref:v('md-v')}, 'md-err'); if (n === FAIL) return; U.sel = []; U.modal = null; done(`${n} invoice${n > 1 ? 's' : ''} marked paid`); },
   company: async () => { const g = v('co-gstin').toUpperCase(), pan = v('co-pan').toUpperCase(), tan = v('co-tan').toUpperCase(), ifsc = v('co-ifsc').toUpperCase(), acct = v('co-acct').replace(/\s/g, '');

@@ -176,6 +176,14 @@ tbody tr.click{cursor:pointer}
 tbody tr.click:hover td{background:var(--surface-2)}
 td.r,th.r{text-align:right}
 td .sub{display:block;color:var(--muted);font-size:12px}
+.linkbtn{display:block;margin-left:auto;border:0;background:none;padding:2px 0 0;color:var(--accent);cursor:pointer;font-weight:600}
+.linkbtn:hover{text-decoration:underline}
+td.remark{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.wide{min-width:1220px}
+table.wide td.num,table.wide td.small{white-space:nowrap}
+table.wide td .sub{white-space:normal}
+.seg .n{font-family:var(--f-mono);margin-left:6px;opacity:.7}
+.seg + .filters{margin-top:-4px}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .fchip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--muted);font-weight:500}
 .fchip[aria-pressed=true]{background:var(--fg);border-color:var(--fg);color:var(--bg)}

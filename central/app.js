@@ -45,6 +45,12 @@ const DEMO_URL = 'https://crewdesk-production.vercel.app/central/';
 const HOSTED = /vercel\.app$|^localhost$|^127\./.test(location.hostname) || location.protocol === 'file:';
 const STAGES = [['deal','Deal set'],['profile','Profile & bank'],['docs','Aadhaar & PAN'],['sent','Agreement sent'],['signed','Signed'],['active','Approved']];
 const NEXT_LABEL = {deal:'Needs deal',profile:'Profile pending',docs:'Documents pending',sent:'Ready for agreement',signed:'Waiting for signature',active:'Awaiting approval'};
+const KINDS = [['cast','Artists'],['crew','Crew'],['vendor','Vendors']];
+const KIND_ONE = {cast:'Artist', crew:'Crew', vendor:'Vendor'};
+const AG_TYPE = {cast:'Artist agreement', crew:'Crew agreement', vendor:'Vendor service agreement'};
+// which list someone is on follows their department (the database applies the same rule)
+const kindOf = (dept, role, cur) => role === 'vendor' || dept === 'Vendors & Services' ? 'vendor' : dept === 'Cast' ? 'cast' : dept ? 'crew' : (cur || 'crew');
+const DEDUCT = {advance:'Advance recovered', damage:'Loss or damage', stay:'Food, stay or travel', penalty:'Late or penalty', other:'Other'};
 const INV = {submitted:['Waiting for HOD','warn'],hod_ok:['Waiting for CFO / Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
 
 /* ============================================================ helpers */
@@ -230,7 +236,7 @@ try { const raw = localStorage.getItem(KEY); S = raw ? JSON.parse(raw) : null; }
 if (!S || S.v !== 3) S = seed();
 let storageWarned = false;
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { if (!storageWarned){ storageWarned = true; toast('This browser isn’t saving demo data, so changes last until you close the tab.'); } } }
-const U = {view:'projects', pid:null, drawer:null, modal:null, menu:false, chat:false, chatLog:[], pf:'all', pq:'', pd:'', invf:'mine', logf:'', sigInk:false, month:null, fmonth:null, ftab:'pay', sel:[], coEdit:false, qtyTouched:false};
+const U = {view:'projects', pid:null, drawer:null, modal:null, menu:false, chat:false, chatLog:[], pf:'all', pk:'all', agk:'all', agf:'all', pq:'', pd:'', invf:'mine', logf:'', sigInk:false, month:null, fmonth:null, ftab:'pay', sel:[], coEdit:false, qtyTouched:false};
 try { const p = JSON.parse(sessionStorage.getItem('crewdesk-ui') || 'null'); if (p) Object.assign(U, {view:p.view, pid:p.pid}); } catch {}
 const user = id => S.users.find(u => u.id === id);
 const proj = id => S.projects.find(p => p.id === id);
@@ -258,6 +264,7 @@ const can = {
   schedule: r => isOwner(r) || isLP(r),
   reports: r => isOwner(r) || isLP(r) || r === 'accounts',
   finance: r => ['cfo','commercial','accounts'].includes(r),
+  adjust: r => ['cfo','commercial','hop','lp','accounts'].includes(r),
 };
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
 const profileDone = u => !!(u.legal && PAN_RE.test(u.pan || '') && u.address && u.bank?.holder && ACCT_RE.test(u.bank?.acct || '') && IFSC_RE.test(u.bank?.ifsc || ''));
@@ -404,7 +411,7 @@ function topBar(){
 
 function rail(){
   const r = myRole(), staff = isStaff(r), n = todos(U.pid, S.session).length;
-  const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], staff && ['people','Crew & vendors','people'],
+  const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], staff && ['people','Artists, crew & vendors','people'], staff && ['agreements','Agreements','doc'],
     ['invoices', staff ? 'Invoices' : 'My invoices', 'inv'], can.finance(r) && ['finance','Payments & Tally','bank'], can.reports(r) && ['reports','Reports','chart']].filter(Boolean);
   const more = [staff && ['company','Company details','building'], can.audit(r) && ['activity','Activity log','log'], ['access','Who can do what','key']].filter(Boolean);
   const b = ([k, l, ic]) => `<button data-act="go" data-id="${k}" ${U.view === k ? 'aria-current="page"' : ''}>${icon(ic)}${l}${k === 'home' && n ? `<span class="count">${n}</span>` : ''}</button>`;
@@ -432,7 +439,7 @@ function projectsView(){
     </button>`; }).join('')}</div>` : `<div class="empty">You aren’t on any production yet. Enter the production code your Line Producer or Head of Production sent you.</div>`}
   <section class="panel" style="max-width:560px"><h3>Join a production</h3>
     <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>
-    <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew or cast</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
+    <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
     <p class="err" id="join-err"></p></section>`;
 }
 function projHead(title, sub = ''){
@@ -599,41 +606,49 @@ function agreementBlock(m, canSign){
 }
 
 /* ---------- people */
+const kindTabs = (act, cur, list) => `<div class="seg" role="group" aria-label="Artists, crew or vendors">${[['all','Everyone'], ...KINDS].map(([k, l]) => `<button data-act="${act}" data-id="${k}" aria-pressed="${cur === k}">${l}<span class="n">${k === 'all' ? list.length : list.filter(m => m.kind === k).length}</span></button>`).join('')}</div>`;
 function peopleView(){
-  const r = myRole(), mems = S.members.filter(m => m.pid === U.pid);
+  const r = myRole(), everyone = S.members.filter(m => m.pid === U.pid), mems = everyone.filter(m => U.pk === 'all' || m.kind === U.pk);
   const groups = [['all','All'],['deal','Needs deal'],['profile','Profile pending'],['docs','Documents pending'],['sent','Ready for agreement'],['signed','Waiting for signature'],['active','Awaiting approval'],['done','Onboarded']];
   const cnt = k => k === 'all' ? mems.length : mems.filter(m => (stageOf(m).next || 'done') === k).length;
   const deptOpts = [...new Set(mems.map(m => m.dept).filter(Boolean))].sort();
-  return `${projHead('People', `<p class="muted">Crew, cast and vendors on this production, and where each one is in onboarding.</p>`)}
+  const what = {all:'Artists, crew and vendors', cast:'Artists', crew:'Crew', vendor:'Vendors'}[U.pk];
+  return `${projHead('People', `<p class="muted">${what} on this show, and where each one is in onboarding.</p>`)}
+  ${kindTabs('pk', U.pk, everyone)}
   <div class="spread"><div class="filters">${groups.filter(([k]) => k === 'all' || cnt(k)).map(([k, l]) => `<button class="fchip" data-act="pf" data-id="${k}" aria-pressed="${U.pf === k}">${l}<span class="n">${cnt(k)}</span></button>`).join('')}</div>
-    ${can.onboard(r) ? `<button class="btn primary" data-act="onboard">${icon('plus', 16)}Onboard person</button>` : ''}</div>
+    ${can.onboard(r) ? `<button class="btn primary" data-act="onboard">${icon('plus', 16)}${{all:'Onboard person', cast:'Onboard artist', crew:'Onboard crew', vendor:'Onboard vendor'}[U.pk]}</button>` : ''}</div>
   <div class="row"><input type="text" class="search" id="pq" placeholder="Search name, job or department" value="${esc(U.pq)}" data-input="pq" aria-label="Search people">
     <select id="pd" data-change="pd" style="width:auto;max-width:240px" aria-label="Department"><option value="">All departments</option>${deptOpts.map(d => `<option ${U.pd === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
   <div class="tablewrap"><table><thead><tr><th>Name</th><th>Department</th><th class="r">Deal</th><th>Joining</th><th>Progress</th><th>Status</th><th>Access</th></tr></thead><tbody id="people-rows">${peopleRows()}</tbody></table></div>`;
 }
 function peopleRows(){
   const q = U.pq.trim().toLowerCase();
-  const rows = S.members.filter(m => m.pid === U.pid).filter(m => U.pf === 'all' || (stageOf(m).next || 'done') === U.pf).filter(m => !U.pd || m.dept === U.pd)
+  const rows = S.members.filter(m => m.pid === U.pid && (U.pk === 'all' || m.kind === U.pk)).filter(m => U.pf === 'all' || (stageOf(m).next || 'done') === U.pf).filter(m => !U.pd || m.dept === U.pd)
     .filter(m => !q || [user(m.userId).name, m.job, m.dept].join(' ').toLowerCase().includes(q));
   return rows.map(m => { const u = user(m.userId); return `<tr class="click" data-act="open-person" data-id="${m.id}" tabindex="0">
     <td><span class="row" style="gap:10px;flex-wrap:nowrap">${av(u)}<span><b>${esc(u.name)}</b><span class="sub">${esc(m.job || 'Role not set')}</span></span></span></td>
-    <td>${esc(m.dept || '—')}</td><td class="r num">${m.rate ? `${inr(m.rate)}<span class="sub">${UNITS[m.unit]}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmtD(m.joining)}</td>
+    <td>${esc(m.dept || '—')}${U.pk === 'all' ? `<span class="sub">${KIND_ONE[m.kind] || ''}</span>` : ''}</td><td class="r num">${m.rate ? `${inr(m.rate)}<span class="sub">${UNITS[m.unit]}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmtD(m.joining)}</td>
     <td>${dots(m)}</td><td>${stageChip(m)}</td><td><span class="chip ${isOwner(m.role) ? 'acc' : ''}">${ROLES[m.role].label}</span></td></tr>`; }).join('') || `<tr><td colspan="7"><div class="empty">No one matches these filters.</div></td></tr>`;
 }
 
 /* ---------- agreements */
+const agState = m => { const s = m.ag?.status || 'none'; return s !== 'none' ? s : (stageOf(m).next === 'sent' ? 'ready' : 'wait'); };
 function agreementsView(){
-  const r = myRole(), mems = S.members.filter(m => m.pid === U.pid && !isOwner(m.role));
-  const st = m => ({none:['Not sent',''], sent:['Sent · waiting for signature','warn'], signed:['Signed · needs approval','gold'], countersigned:['Approved','good']}[m.ag?.status || 'none']);
+  const r = myRole(), everyone = S.members.filter(m => m.pid === U.pid && !isOwner(m.role)), ofKind = everyone.filter(m => U.agk === 'all' || m.kind === U.agk);
+  const agGroups = [['all','All'],['wait','Not ready'],['ready','Ready to send'],['sent','Waiting for signature'],['signed','Signed · needs approval'],['countersigned','Approved']];
+  const cnt = k => k === 'all' ? ofKind.length : ofKind.filter(m => agState(m) === k).length;
+  const st = m => ({wait:[NEXT_LABEL[stageOf(m).next] || 'Not ready', ''], ready:['Ready to send','info'], sent:['Sent · waiting for signature','warn'], signed:['Signed · needs approval','gold'], countersigned:['Approved','good']}[agState(m)]);
+  const mems = ofKind.filter(m => U.agf === 'all' || agState(m) === U.agf);
   return `${projHead('Agreements', '<p class="muted">An agreement can be sent once the deal, profile and documents are complete. The CFO or Commercial Head approves it after the person signs.</p>')}
-  <div class="tablewrap"><table><thead><tr><th>Person</th><th>Role</th><th class="r">Fee</th><th>Status</th><th>Signed</th><th class="r">Action</th></tr></thead><tbody>
+  ${kindTabs('agk', U.agk, everyone)}
+  <div class="filters">${agGroups.filter(([k]) => k === 'all' || cnt(k) || U.agf === k).map(([k, l]) => `<button class="fchip" data-act="agf" data-id="${k}" aria-pressed="${U.agf === k}">${l}<span class="n">${cnt(k)}</span></button>`).join('')}</div>
+  <div class="tablewrap"><table><thead><tr><th>Person</th><th>Agreement</th><th>Category</th><th class="r">Fee</th><th>Status</th><th>Sent</th><th>Signed</th><th class="r">Action</th></tr></thead><tbody>
   ${mems.map(m => { const u = user(m.userId), s = stageOf(m), [l, c] = st(m), a = m.ag || {};
     let action = '<span class="muted small">—</span>';
-    if (a.status === 'none' && s.next === 'sent' && can.sendAgreement(r)) action = `<button class="btn sm primary" data-act="send-ag" data-id="${m.id}">Send</button>`;
-    else if (a.status === 'none') action = `<span class="small muted">${NEXT_LABEL[s.next] || ''}</span>`;
+    if (agState(m) === 'ready' && can.sendAgreement(r)) action = `<button class="btn sm primary" data-act="send-ag" data-id="${m.id}">Send</button>`;
     else if (a.status === 'signed' && can.countersign(r)) action = `<button class="btn sm primary" data-act="countersign" data-id="${m.id}">Approve</button>`;
-    return `<tr class="click" data-act="open-person" data-id="${m.id}"><td><b>${esc(u.name)}</b></td><td>${esc(m.job || '—')}<span class="sub">${esc(m.dept || '')}</span></td><td class="r num">${m.rate ? inr(m.rate) + `<span class="sub">${UNITS[m.unit]}</span>` : '—'}</td>
-    <td><span class="chip ${c}">${l}</span></td><td class="num small">${a.signedAt ? fmtT(a.signedAt) : '—'}</td><td class="r" data-stop="1">${action}</td></tr>`; }).join('')}
+    return `<tr class="click" data-act="open-person" data-id="${m.id}"><td><b>${esc(u.name)}</b></td><td>${AG_TYPE[m.kind] || AG_TYPE.crew}</td><td>${esc(m.job || '—')}<span class="sub">${esc(m.dept || '')}</span></td><td class="r num">${m.rate ? inr(m.rate) + `<span class="sub">${UNITS[m.unit]}</span>` : '—'}</td>
+    <td><span class="chip ${c}">${l}</span></td><td class="num small">${a.sentAt ? fmtT(a.sentAt) : '—'}</td><td class="num small">${a.signedAt ? fmtT(a.signedAt) : '—'}</td><td class="r" data-stop="1">${action}</td></tr>`; }).join('') || `<tr><td colspan="8"><div class="empty">No agreements match these filters.</div></td></tr>`}
   </tbody></table></div>`;
 }
 
@@ -652,14 +667,17 @@ function invoicesView(){
   <div class="spread"><div class="filters">${tabs.map(([k, l]) => `<button class="fchip" data-act="invf" data-id="${k}" aria-pressed="${U.invf === k}">${l}<span class="n">${invs.filter(i => k === 'all' || (k === 'mine' ? mineToAct(i) : i.status === k)).length}</span></button>`).join('')}</div>
     ${m && m.rate ? `<button class="btn primary" data-act="raise" ${canRaise ? '' : 'disabled title="Finish onboarding first"'}>${icon('plus', 16)}Raise invoice</button>` : ''}</div>
   ${!staff && !canRaise ? '<p class="banner">You can raise invoices once your agreement is approved.</p>' : ''}
-  <div class="tablewrap"><table><thead><tr><th>Invoice</th>${staff ? '<th>From</th>' : ''}<th>Period</th><th class="r">Fee</th><th class="r">GST</th><th class="r">TDS</th><th class="r">Payable</th><th>Status</th><th class="r">Action</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="wide"><thead><tr><th>Invoice</th>${staff ? '<th>From</th>' : ''}<th>Period</th><th class="r">Fee</th><th class="r">GST</th><th class="r">TDS</th><th class="r">Deductions</th><th class="r">Payable</th><th>Remarks</th><th>Status</th><th class="r">Action</th></tr></thead><tbody>
   ${shown.map(i => { const [l, c] = INV[i.status], acts = invActions(i);
     return `<tr class="click" data-act="open-invoice" data-id="${i.id}"><td><b class="mono">${esc(i.no)}</b><span class="sub">${fmtT(i.at)}</span></td>${staff ? `<td>${esc(user(i.by).name)}<span class="sub">${esc(i.dept)}</span></td>` : ''}
-    <td class="small">${fmtD(i.from)} – ${fmtD(i.to)}<span class="sub">${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}${overClaim(i) ? ' <span class="flag">⚠ check days</span>' : ''}</span></td><td class="r num">${inr(i.amount)}</td><td class="r num">${i.gst ? inr(i.gst) : '—'}</td><td class="r num">${i.tds ? '−' + inr(i.tds) : '—'}</td><td class="r num"><b>${inr(i.payable)}</b></td>
+    <td class="small">${fmtD(i.from)} – ${fmtD(i.to)}<span class="sub">${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}${overClaim(i) ? ' <span class="flag">⚠ check days</span>' : ''}</span></td><td class="r num">${inr(i.amount)}</td><td class="r num">${i.gst ? inr(i.gst) : '—'}</td><td class="r num">${i.tds ? '−' + inr(i.tds) : '—'}</td>
+    <td class="r num" data-stop="1">${i.deduction ? `−${inr(i.deduction)}<span class="sub">${esc((i.deductions || []).map(d => d.label).join(', '))}</span>` : canAdjust(i) ? '' : '—'}${canAdjust(i) ? `<button class="linkbtn small" data-act="adjust" data-id="${i.id}">${i.deduction ? 'Edit' : 'Add'}</button>` : ''}</td>
+    <td class="r num"><b>${inr(i.payable)}</b></td><td class="small remark" title="${esc(i.remarks || '')}">${i.remarks ? esc(i.remarks) : '<span class="muted">—</span>'}</td>
     <td><span class="chip ${c}">${l}</span>${i.utr ? `<span class="sub mono">${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="sub">${esc(i.reason)}</span>` : ''}</td>
-    <td class="r" data-stop="1"><span class="row" style="justify-content:flex-end;flex-wrap:nowrap">${acts.map(([a, l, cls]) => `<button class="btn sm ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</span></td></tr>`; }).join('') || `<tr><td colspan="${staff ? 9 : 8}"><div class="empty">${staff ? 'No invoices here.' : 'You haven’t raised an invoice yet.'}</div></td></tr>`}
+    <td class="r" data-stop="1"><span class="row" style="justify-content:flex-end;flex-wrap:nowrap">${acts.map(([a, l, cls]) => `<button class="btn sm ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</span></td></tr>`; }).join('') || `<tr><td colspan="${staff ? 11 : 10}"><div class="empty">${staff ? 'No invoices here.' : 'You haven’t raised an invoice yet.'}</div></td></tr>`}
   </tbody></table></div>`;
 }
+const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && ['submitted','hod_ok','approved'].includes(i.status) && !i.tp;
 function invActions(i){
   const r = myRole(), mine = memberIn(U.pid, S.session), out = [];
   if (i.status === 'submitted' && i.by !== S.session && (isLP(r) || isOwner(r) || (r === 'hod' && mine.dept === i.dept))) out.push(['hod-ok','Approve']);
@@ -791,10 +809,10 @@ function financeView(){
     const selTot = sum(list.filter(i => U.sel.includes(i.id)), i => i.payable);
     body = `<div class="spread"><p class="muted" style="max-width:60ch">Approved invoices waiting for payment. Tick the ones to pay and create one payment run: you get the bank’s bulk-upload file and enter one reference for all.</p>
       <button class="btn primary" data-act="payrun" ${U.sel.length ? '' : 'disabled'}>Create payment run${U.sel.length ? ` · ${U.sel.length} · ${inr(selTot)}` : ''}</button></div>
-    <div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-change="selall" aria-label="Select all" ${list.length && U.sel.length === list.length ? 'checked' : ''}></th><th>Invoice</th><th>Pay to</th><th>Bank</th><th class="r">Payable</th><th>Due</th></tr></thead><tbody>
+    <div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-change="selall" aria-label="Select all" ${list.length && U.sel.length === list.length ? 'checked' : ''}></th><th>Invoice</th><th>Pay to</th><th>Bank</th><th class="r">Deductions</th><th class="r">Payable</th><th>Due</th></tr></thead><tbody>
     ${list.map(i => { const u = user(i.by), due = (i.approvedAt || i.at) + (member(i.memberId)?.terms || 30) * 864e5, over = due < Date.now();
       return `<tr><td><input type="checkbox" data-change="sel" value="${i.id}" ${U.sel.includes(i.id) ? 'checked' : ''} aria-label="Select ${esc(i.no)}"></td><td><b class="mono">${esc(i.no)}</b><span class="sub">${esc(i.dept)}</span></td><td>${esc(u.legal || u.name)}</td>
-      <td class="mono small">${esc(u.bank?.acct || '—')}<span class="sub">${esc(u.bank?.ifsc || '')}</span></td><td class="r num"><b>${inr(i.payable)}</b></td><td>${over ? `<span class="chip bad">Overdue · ${fmtD(isoD(new Date(due)))}</span>` : `<span class="small">${fmtD(isoD(new Date(due)))}</span>`}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty">Nothing approved is waiting for payment.</div></td></tr>'}
+      <td class="mono small">${esc(u.bank?.acct || '—')}<span class="sub">${esc(u.bank?.ifsc || '')}</span></td><td class="r num">${i.deduction ? '−' + inr(i.deduction) : '—'}</td><td class="r num"><b>${inr(i.payable)}</b>${i.remarks ? `<span class="sub">${esc(i.remarks)}</span>` : ''}</td><td>${over ? `<span class="chip bad">Overdue · ${fmtD(isoD(new Date(due)))}</span>` : `<span class="small">${fmtD(isoD(new Date(due)))}</span>`}</td></tr>`; }).join('') || '<tr><td colspan="7"><div class="empty">Nothing approved is waiting for payment.</div></td></tr>'}
     </tbody></table></div>`;
   }
   if (tab === 'tds' || tab === 'gst'){
@@ -838,12 +856,12 @@ function tallyXML(pid){
   const c = co(), t = c.tally || {}, {pur, pay} = tallyPending(pid);
   const x = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[ch]));
   const dt = ts => isoD(new Date(ts)).replace(/-/g, ''), amt = n => n.toFixed(2);
-  const party = i => user(i.by).legal || user(i.by).name, exp = i => `Production - ${i.dept}`, tdsL = i => `TDS Payable - ${TDS[i.tdsKey]?.code}`;
+  const party = i => user(i.by).legal || user(i.by).name, exp = i => `Production - ${i.dept}`, tdsL = i => `TDS Payable - ${TDS[i.tdsKey]?.code}`, dedL = d => `Recovery - ${d.label}`;
   const line = (n, a, debit, isParty) => `      <ALLLEDGERENTRIES.LIST><LEDGERNAME>${x(n)}</LEDGERNAME><ISDEEMEDPOSITIVE>${debit ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>${isParty ? '<ISPARTYLEDGER>Yes</ISPARTYLEDGER>' : ''}<AMOUNT>${debit ? '-' : ''}${amt(a)}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
   const env = (report, body) => `<ENVELOPE>\n <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>\n <BODY><IMPORTDATA>\n  <REQUESTDESC><REPORTNAME>${report}</REPORTNAME><STATICVARIABLES><SVCURRENTCOMPANY>${x(t.company)}</SVCURRENTCOMPANY></STATICVARIABLES></REQUESTDESC>\n  <REQUESTDATA>\n${body}\n  </REQUESTDATA>\n </IMPORTDATA></BODY>\n</ENVELOPE>`;
   const L = new Map();
   [...pur, ...pay].forEach(i => L.set(party(i), t.creditorsGroup || 'Sundry Creditors'));
-  pur.forEach(i => { L.set(exp(i), t.expenseGroup || 'Direct Expenses'); const g = gstSplit(i); if (g.cgst) { L.set('Input CGST', 'Duties & Taxes'); L.set('Input SGST', 'Duties & Taxes'); } if (g.igst) L.set('Input IGST', 'Duties & Taxes'); if (i.tds) L.set(tdsL(i), 'Duties & Taxes'); });
+  pur.forEach(i => { L.set(exp(i), t.expenseGroup || 'Direct Expenses'); const g = gstSplit(i); if (g.cgst) { L.set('Input CGST', 'Duties & Taxes'); L.set('Input SGST', 'Duties & Taxes'); } if (g.igst) L.set('Input IGST', 'Duties & Taxes'); if (i.tds) L.set(tdsL(i), 'Duties & Taxes'); (i.deductions || []).forEach(d => L.set(dedL(d), d.type === 'advance' ? 'Loans & Advances (Asset)' : 'Indirect Incomes')); });
   if (pay.length) L.set(t.bankLedger || 'Bank Account', 'Bank Accounts');
   const ledgers = env('All Masters', [...L].map(([n, parent]) => `   <TALLYMESSAGE xmlns:UDF="TallyUDF"><LEDGER NAME="${x(n)}" ACTION="Create"><NAME.LIST><NAME>${x(n)}</NAME></NAME.LIST><PARENT>${x(parent)}</PARENT></LEDGER></TALLYMESSAGE>`).join('\n'));
   const v = [];
@@ -851,7 +869,7 @@ function tallyXML(pid){
     v.push(`   <TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Purchase" ACTION="Create">
       <DATE>${dt(i.approvedAt || i.at)}</DATE><VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME><VOUCHERNUMBER>${x(i.no)}</VOUCHERNUMBER><REFERENCE>${x(i.no)}</REFERENCE><PARTYLEDGERNAME>${x(party(i))}</PARTYLEDGERNAME>
       <NARRATION>${x(`${proj(i.pid).name} · ${i.desc}`)}</NARRATION>
-${[line(exp(i), i.amount, true), g.cgst && line('Input CGST', g.cgst, true), g.sgst && line('Input SGST', g.sgst, true), g.igst && line('Input IGST', g.igst, true), line(party(i), i.payable, false, true), i.tds && line(tdsL(i), i.tds, false)].filter(Boolean).join('\n')}
+${[line(exp(i), i.amount, true), g.cgst && line('Input CGST', g.cgst, true), g.sgst && line('Input SGST', g.sgst, true), g.igst && line('Input IGST', g.igst, true), line(party(i), i.payable, false, true), i.tds && line(tdsL(i), i.tds, false), ...(i.deductions || []).map(d => line(dedL(d), d.amount, false))].filter(Boolean).join('\n')}
    </VOUCHER></TALLYMESSAGE>`); });
   pay.forEach(i => v.push(`   <TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Payment" ACTION="Create">
       <DATE>${dt(i.paidAt)}</DATE><VOUCHERTYPENAME>Payment</VOUCHERTYPENAME><REFERENCE>${x(i.utr)}</REFERENCE><PARTYLEDGERNAME>${x(party(i))}</PARTYLEDGERNAME>
@@ -905,8 +923,8 @@ function workbookData(pid){
     ['Cost per episode (₹)', ms.eps ? Math.round(ms.total / ms.eps) : 0], ['Paid out in the month (₹)', ms.paid], ['Approved, waiting for payment (₹)', ms.toPay], ['Exported', new Date().toLocaleString('en-IN')]].map(([Item, Value]) => ({Item, Value}));
   sh['Cost by department'] = [...new Set([...Object.keys(ms.byDept), ...Object.keys(p.budget || {})])].map(d => { const b = ms.byDept[d] || {billed:0, unbilled:0}; return {Department:d, 'Invoiced (₹)':b.billed, 'Worked, not invoiced (₹)':b.unbilled, 'Month total (₹)':b.billed + b.unbilled, 'Total budget (₹)':p.budget?.[d] || 0}; });
   sh['Shoot days'] = daysOf(pid).map(d => ({Date:d.date, Status:DAY[d.status][0], Episodes:d.epFrom ? epsLabel(d) : '', Location:d.location, Call:d.call, Wrap:d.wrap, 'Checked in':d.att.length, Note:d.note || ''}));
-  sh['Crew & vendors'] = S.members.filter(m => m.pid === pid).map(m => { const u = user(m.userId), s = stageOf(m); return {Name:u.name, Department:m.dept, Job:m.job, Access:ROLES[m.role].label, 'Rate (₹)':m.rate || '', Per:UNITS[m.unit], Joining:m.joining, 'TDS section':TDS[m.tds]?.label || '', Status:s.next ? NEXT_LABEL[s.next] : 'Onboarded', Mobile:u.phone, PAN:can.seeKyc(r) ? u.pan : mask(u.pan), 'Crew ID':m.code}; });
-  sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, Department:i.dept, From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Payable (₹)':i.payable, Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
+  KINDS.forEach(([k, label]) => sh[label] = S.members.filter(m => m.pid === pid && m.kind === k).map(m => { const u = user(m.userId), s = stageOf(m); return {Name:u.name, Department:m.dept, Job:m.job, Access:ROLES[m.role].label, 'Rate (₹)':m.rate || '', Per:UNITS[m.unit], Joining:m.joining, 'TDS section':TDS[m.tds]?.label || '', Status:s.next ? NEXT_LABEL[s.next] : 'Onboarded', Agreement:{none:'Not sent', sent:'Sent', signed:'Signed', countersigned:'Approved'}[m.ag?.status || 'none'], Mobile:u.phone, PAN:can.seeKyc(r) ? u.pan : mask(u.pan), 'Crew ID':m.code}; }));
+  sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, List:KIND_ONE[member(i.memberId)?.kind] || '', Department:i.dept, From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Deductions (₹)':i.deduction || 0, 'Deduction details':(i.deductions || []).map(d => `${d.label} ${d.amount}: ${d.note}`).join('; '), 'Payable (₹)':i.payable, Remarks:i.remarks || '', Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
   if (fin){
     sh['TDS'] = S.invoices.filter(i => i.pid === pid && i.tds > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Deductee:user(i.by).legal || user(i.by).name, PAN:user(i.by).pan, Section:TDS[i.tdsKey].code, 'Rate %':TDS[i.tdsKey].rate, 'Fee (₹)':i.amount, 'TDS (₹)':i.tds}));
     sh['GST input'] = S.invoices.filter(i => i.pid === pid && i.gst > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Supplier:user(i.by).legal || user(i.by).name, GSTIN:user(i.by).gstin, 'Taxable (₹)':i.amount, ...Object.fromEntries(Object.entries(gstSplit(i)).map(([k, v]) => [k.toUpperCase() + ' (₹)', v]))}));
@@ -960,8 +978,9 @@ function invoiceDrawer(i){
   const u = user(i.by), [l, c] = INV[i.status], acts = invActions(i), m = member(i.memberId);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
   <div class="stack" style="gap:4px"><p class="eyebrow">Invoice</p><h2 class="mono">${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
-  <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}</dl>
-    <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span><span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
+  <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}${i.remarks ? `<dt>Remarks</dt><dd>${esc(i.remarks)}</dd>` : ''}</dl>
+    <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span>${(i.deductions || []).map(d => `<span>${esc(d.label)} · ${esc(d.note)}</span><span class="num">−${inr(d.amount)}</span>`).join('')}<span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
+  ${canAdjust(i) ? `<div class="row"><button class="btn" data-act="adjust" data-id="${i.id}">Deductions & remarks</button></div>` : ''}
   ${attCheck(i)}
   <section class="panel"><h3>Pay to</h3><p>${esc(can.seeKyc(myRole()) || i.by === S.session ? bankLine(u) : 'Visible to Accounts, the CFO and Commercial Head')}</p></section>
   ${acts.length ? `<div class="row">${acts.map(([a, l, cls]) => `<button class="btn ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</div>` : ''}
@@ -973,18 +992,19 @@ function modalBody(){
   const M = U.modal, r = myRole();
   const head = (t, s = '') => `<div class="spread"><div class="stack" style="gap:4px"><h2>${t}</h2>${s ? `<p class="muted small">${s}</p>` : ''}</div><button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button></div>`;
   if (M.type === 'onboard' || M.type === 'deal'){
-    const m = M.type === 'deal' ? member(M.id) : {dept:'Camera', job:'', unit:'day', rate:'', joining:today(), end:'', tds:'194C-1', terms:30, role:'crew'};
+    const pk = U.view === 'people' ? U.pk : 'all', m = M.type === 'deal' ? member(M.id) : {dept:{cast:'Cast', vendor:'Vendors & Services'}[pk] || 'Camera', job:'', unit:pk === 'cast' ? 'episode' : 'day', rate:'', joining:today(), end:'', tds:{cast:'194J-10', vendor:'194C-2'}[pk] || '194C-1', terms:30, role:pk === 'vendor' ? 'vendor' : 'crew'};
     const dept = M.dept || m.dept || 'Camera', roleOpts = Object.entries(ROLES).filter(([k]) => isOwner(r) || ['crew','vendor','hod'].includes(k)).map(([k, v]) => [k, v.label]);
     return `${head(M.type === 'deal' ? `Deal · ${esc(user(m.userId).name)}` : 'Onboard a person', M.type === 'deal' ? 'Every change is saved to the activity log and can be undone.' : 'They get an invite to sign in, fill their details and upload documents.')}
     <form class="stack" data-form="${M.type}">
       ${M.type === 'onboard' ? `<div class="grid2"><label class="f">Full name<input type="text" id="ob-name" required></label><label class="f">Mobile<input type="tel" id="ob-phone" placeholder="98200 00000"></label></div>
-      <div class="grid2"><label class="f">Email<input type="email" id="ob-email"></label><label class="f">Engaged as<select id="ob-kind"><option value="crew">Crew</option><option value="cast">Cast / artist</option><option value="vendor">Vendor / service</option></select></label></div>` : ''}
-      <div class="grid2"><label class="f">Department<select id="ob-dept" data-change="ob-dept">${opt(Object.keys(DEPTS), dept)}</select></label>
+      <label class="f">Email<input type="email" id="ob-email"></label>` : ''}
+      <div class="grid3"><label class="f">List<select id="ob-kind" data-change="ob-kind">${opt(KINDS.map(([k]) => [k, KIND_ONE[k]]), kindOf(dept, m.role, m.kind))}</select></label><label class="f">Department<select id="ob-dept" data-change="ob-dept">${opt(Object.keys(DEPTS), dept)}</select></label>
       <label class="f">${dept === 'Vendors & Services' ? 'Service' : 'Job'}<select id="ob-job">${opt(DEPTS[dept], m.job)}</select></label></div>
+      <p class="small muted">Artists are the Cast department and vendors are Vendors & Services; everyone else is crew.</p>
       <div class="grid3"><label class="f">Rate (₹)<input type="number" id="ob-rate" min="0" step="100" value="${esc(m.rate || '')}" class="mono"></label>
       <label class="f">Per<select id="ob-unit">${opt(Object.entries(UNITS), m.unit)}</select></label><label class="f">Payment terms<select id="ob-terms">${opt([[7, '7 days'], [15, '15 days'], [30, '30 days'], [45, '45 days']].map(([a, b]) => [String(a), b]), String(m.terms))}</select></label></div>
       <div class="grid2"><label class="f">Joining date<input type="date" id="ob-join" value="${esc(m.joining)}"></label><label class="f">End date <span class="hint">optional</span><input type="date" id="ob-end" value="${esc(m.end)}"></label></div>
-      <div class="grid2"><label class="f">TDS section<select id="ob-tds">${opt(Object.entries(TDS).map(([k, v]) => [k, v.label]), m.tds)}</select></label><label class="f">App access<select id="ob-role">${opt(roleOpts, m.role)}</select></label></div>
+      <div class="grid2"><label class="f">TDS section<select id="ob-tds">${opt(Object.entries(TDS).map(([k, v]) => [k, v.label]), m.tds)}</select></label><label class="f">App access<select id="ob-role" data-change="ob-role">${opt(roleOpts, m.role)}</select></label></div>
       <p class="err" id="ob-err"></p><div class="row"><button class="btn primary" type="submit">${M.type === 'deal' ? 'Save deal' : 'Create invite'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'invite'){
@@ -1004,6 +1024,16 @@ function modalBody(){
       <div class="grid2"><label class="f">GST<select id="rv-gst" ${u.gstin ? '' : 'disabled'}>${opt([['0', 'No GST'], ['5', '5%'], ['12', '12%'], ['18', '18%']], u.gstin ? '18' : '0')}</select>${u.gstin ? '' : '<span class="hint small">Add a GSTIN to your profile to charge GST</span>'}</label><label class="f">Description<input type="text" id="rv-desc" placeholder="${esc(m.job)}, shoot days"></label></div>
       <div class="calc" id="rv-calc"></div>
       <p class="err" id="rv-err"></p><div class="row"><button class="btn primary" type="submit">Submit invoice</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'adjust'){
+    const i = S.invoices.find(x => x.id === M.id), have = i.deductions || [], rows = [...have, {}, {}, {}].slice(0, Math.max(3, have.length + 1));
+    return `${head(`Deductions · ${esc(i.no)}`, `${esc(user(i.by).name)} · invoice total ${inr(i.amount + i.gst)} · TDS −${inr(i.tds)}`)}
+    <form class="stack" data-form="adjust" data-input="adjcalc">
+      <p class="small muted">Take off an advance already paid, a loss or damage, food or stay, or a penalty. TDS stays on the full fee. If the days or the rate are wrong, reject the invoice instead so it is raised again.</p>
+      ${rows.map((d, n) => `<div class="grid3"><label class="f">For<select id="dd-t${n}"><option value="">—</option>${opt(Object.entries(DEDUCT), d.type || '')}</select></label><label class="f">Amount (₹)<input type="number" id="dd-a${n}" min="0" step="1" class="mono" value="${esc(d.amount || '')}"></label><label class="f">Note <span class="hint">they see this</span><input type="text" id="dd-n${n}" maxlength="200" value="${esc(d.note || '')}"></label></div>`).join('')}
+      <label class="f">Remarks <span class="hint">optional · they see this</span><textarea id="dd-rem" rows="2" maxlength="500">${esc(i.remarks || '')}</textarea></label>
+      <div class="calc" id="dd-calc"></div>
+      <p class="err" id="dd-err"></p><div class="row"><button class="btn primary" type="submit">Save</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'pay' || M.type === 'reject'){
     const i = S.invoices.find(x => x.id === M.id);
@@ -1125,6 +1155,10 @@ function answer(q){
 
 /* ============================================================ actions */
 function toast(t){ const el = $('#toast'); el.innerHTML = `<div class="toast">${esc(t)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(() => el.innerHTML = '', 3200); }
+function dedRows(){ const out = []; for (let n = 0; document.getElementById('dd-t' + n); n++){ const type = val('dd-t' + n), amount = Math.round(+val('dd-a' + n) || 0), note = val('dd-n' + n); if (type || amount || note) out.push({type, label:DEDUCT[type] || '', amount, note}); } return out; }
+function adjCalc(){ const i = S.invoices.find(x => x.id === U.modal?.id), box = document.getElementById('dd-calc'); if (!i || !box) return;
+  const t = dedRows().reduce((a, d) => a + (d.amount || 0), 0), base = i.amount + i.gst - i.tds;
+  box.innerHTML = `<span>Invoice total less TDS</span><span class="num">${inr(base)}</span><span>Deductions</span><span class="num">−${inr(t)}</span><span class="tot">Will be paid</span><span class="num tot">${inr(base - t)}</span>`; }
 function err(id, t){ const el = document.getElementById(id); if (el) el.textContent = t; return false; }
 const val = id => (document.getElementById(id)?.value || '').trim();
 function done(msg){ save(); render(); if (msg) toast(msg); }
@@ -1147,6 +1181,10 @@ const ACT = {
   close: () => { U.drawer = null; renderLayer(); },
   'close-modal': () => { U.modal = null; renderLayer(); },
   pf: el => { U.pf = el.dataset.id; render(); },
+  pk: el => { U.pk = el.dataset.id; U.pf = 'all'; render(); },
+  agk: el => { U.agk = el.dataset.id; U.agf = 'all'; render(); },
+  agf: el => { U.agf = el.dataset.id; render(); },
+  adjust: el => { U.modal = {type:'adjust', id:el.dataset.id}; renderLayer(); adjCalc(); },
   invf: el => { U.invf = el.dataset.id; render(); },
   logf: el => { U.logf = el.dataset.id; render(); },
   raise: () => { U.modal = {type:'raise'}; U.qtyTouched = false; renderLayer(); calcInv(); },
@@ -1238,7 +1276,7 @@ const FORMS = {
     if (val('ob-end') && val('ob-end') < joining) return err('ob-err', 'The end date is before the joining date.');
     let base = name.toLowerCase().replace(/[^a-z]/g, '').slice(0, 12) || 'crew', un = base, n = 1; while (S.users.some(x => x.username === un)) un = base + (++n);
     const u = {id:uid('u'), username:un, name, title:role === 'vendor' ? 'vendor' : 'crew', password:Math.random().toString(36).slice(2, 8), phone:val('ob-phone'), email:val('ob-email') || `${un}@example.in`, legal:'', pan:'', gstin:'', address:'', bank:{holder:'',name:'',acct:'',ifsc:''}, emergency:'', aadhaar4:'', docs:{}, consent:false};
-    const m = {id:uid('m'), pid:U.pid, userId:u.id, role, dept:val('ob-dept'), job:val('ob-job'), rate, unit:val('ob-unit'), joining, end:val('ob-end'), tds:val('ob-tds'), terms:+val('ob-terms'), kind:role === 'vendor' ? 'vendor' : kind, ag:{status:'none'}, code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:Date.now()};
+    const m = {id:uid('m'), pid:U.pid, userId:u.id, role, dept:val('ob-dept'), job:val('ob-job'), rate, unit:val('ob-unit'), joining, end:val('ob-end'), tds:val('ob-tds'), terms:+val('ob-terms'), kind:kindOf(val('ob-dept'), role, kind), ag:{status:'none'}, code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:Date.now()};
     S.users.push(u); S.members.push(m);
     log(U.pid, 'onboard', `Invited ${name} as ${m.job}, ${m.dept} at ${inr(rate)} ${UNITS[m.unit]}`, {memberId:m.id});
     U.modal = {type:'invite', userId:u.id}; save(); render(); },
@@ -1250,6 +1288,7 @@ const FORMS = {
     const changed = Object.keys(next).filter(k => String(next[k]) !== String(m[k] ?? ''));
     if (!changed.length) { U.modal = null; return render(); }
     changed.forEach(k => { log(U.pid, 'deal', `Changed ${user(m.userId).name}’s ${FIELD[k].toLowerCase()}`, {memberId:m.id, field:k, before:m[k], after:next[k]}); m[k] = next[k]; });
+    m.kind = kindOf(m.dept, m.role, m.kind);
     if (m.ag?.status === 'sent') { m.ag.text = agText(m); }
     U.modal = null; done(`Deal saved · ${changed.length} change${changed.length > 1 ? 's' : ''} logged`); },
   profile: () => { const u = me(), pan = val('pf-pan').toUpperCase(), gstin = val('pf-gstin').toUpperCase(), ifsc = val('pf-ifsc').toUpperCase(), acct = val('pf-acct').replace(/\s/g, '');
@@ -1285,6 +1324,14 @@ const FORMS = {
   pay: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
     if (v.length < 6) return err('md-err', 'Enter the bank reference (UTR) from the payment.');
     i.status = 'paid'; i.utr = v; i.paidAt = Date.now(); log(U.pid, 'payment', `Marked ${i.no} paid · UTR ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} marked paid`); },
+  adjust: () => { const i = S.invoices.find(x => x.id === U.modal.id), items = dedRows(), rem = val('dd-rem'), base = i.amount + i.gst - i.tds;
+    if (!canAdjust(i)) return err('dd-err', 'You can’t change this invoice now.');
+    if (items.some(d => !d.type)) return err('dd-err', 'Pick what each deduction is for.');
+    if (items.some(d => !(d.amount > 0))) return err('dd-err', 'Each deduction needs an amount in rupees.');
+    if (items.some(d => d.note.length < 3)) return err('dd-err', 'Say what each deduction is for, so the person understands it.');
+    const t = items.reduce((a, d) => a + d.amount, 0); if (t > base) return err('dd-err', `Deductions can’t be more than the amount payable (${inr(base)}).`);
+    Object.assign(i, {deductions:items, deduction:t, remarks:rem, payable:base - t});
+    log(U.pid, 'invoice', `Updated ${i.no} (${user(i.by).name}): deductions ${inr(t)}${rem ? `, remark “${rem}”` : ''}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} saved · pays ${inr(base - t)}`); },
   reject: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
     if (v.length < 4) return err('md-err', 'Say why, so they can fix it and resubmit.');
     i.status = 'rejected'; i.reason = v; log(U.pid, 'invoice', `Rejected ${i.no}: ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} rejected; ${user(i.by).name} will see the reason`); },
@@ -1347,12 +1394,14 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape'){ if (U.modal){ U.modal = null; renderLayer(); } else if (U.drawer){ U.drawer = null; renderLayer(); } else if (U.chat){ U.chat = false; renderChat(); } }
   if (e.key === 'Enter' && e.target.matches('tr[data-act]')) ACT[e.target.dataset.act](e.target);
 });
+function obDept(d){ const job = $('#ob-job'); job.innerHTML = opt(DEPTS[d], ''); job.closest('label').firstChild.textContent = d === 'Vendors & Services' ? 'Service' : 'Job'; const k = $('#ob-kind'); if (k) k.value = kindOf(d, val('ob-role')); }
 document.addEventListener('submit', e => { const f = FORMS[e.target.dataset.form]; if (f){ e.preventDefault(); f(); } });
 document.addEventListener('input', e => {
   if (e.target.dataset.input === 'pq'){ U.pq = e.target.value; const tb = $('#people-rows'); if (tb) tb.innerHTML = peopleRows(); }
   if (e.target.id === 'rv-qty') U.qtyTouched = true;
   if ((e.target.id === 'rv-from' || e.target.id === 'rv-to') && !U.qtyTouched){ const m = memberIn(U.pid, S.session); if (m?.unit === 'day') $('#rv-qty').value = attIn(U.pid, S.session, val('rv-from'), val('rv-to')) || 1; }
   if (e.target.closest('[data-input="calc"]')) calcInv();
+  if (e.target.closest('[data-input="adjcalc"]')) adjCalc();
 });
 document.addEventListener('change', async e => {
   const t = e.target;
@@ -1363,7 +1412,14 @@ document.addEventListener('change', async e => {
   if (t.dataset.change === 'fmonth'){ U.fmonth = t.value; return render(); }
   if (t.dataset.change === 'sel'){ U.sel = t.checked ? [...new Set([...U.sel, t.value])] : U.sel.filter(x => x !== t.value); return render(); }
   if (t.dataset.change === 'selall'){ U.sel = t.checked ? S.invoices.filter(i => i.pid === U.pid && i.status === 'approved').map(i => i.id) : []; return render(); }
-  if (t.dataset.change === 'ob-dept'){ const job = $('#ob-job'); job.innerHTML = opt(DEPTS[t.value], ''); job.closest('label').firstChild.textContent = t.value === 'Vendors & Services' ? 'Service' : 'Job'; return; }
+  if (t.dataset.change === 'ob-dept'){ obDept(t.value); return; }
+  if (t.dataset.change === 'ob-role'){ $('#ob-kind').value = kindOf(val('ob-dept'), t.value); return; }
+  if (t.dataset.change === 'ob-kind'){
+    const cur = val('ob-dept'), want = {cast:'Cast', vendor:'Vendors & Services'}[t.value] || (['Cast','Vendors & Services'].includes(cur) ? 'Camera' : cur);
+    if (want !== cur){ $('#ob-dept').value = want; obDept(want); }
+    const role = $('#ob-role'); if (t.value === 'vendor' && role.querySelector('option[value="vendor"]')) role.value = 'vendor'; else if (t.value !== 'vendor' && role.value === 'vendor') role.value = 'crew';
+    if (U.modal?.type === 'onboard'){ $('#ob-tds').value = {cast:'194J-10', vendor:'194C-2'}[t.value] || '194C-1'; if (t.value === 'cast') $('#ob-unit').value = 'episode'; }
+    return; }
   if (t.closest('[data-input="calc"]')) calcInv();
   if (t.dataset.upload){
     const file = t.files?.[0]; if (!file) return;
