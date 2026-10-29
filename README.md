@@ -86,6 +86,8 @@ The site root is now **CrewDesk Central**: company set up once, production codes
 
 **Security.** Every table has row-level security and no direct-write rules; every change goes through a database function that checks the caller's role. PAN, Aadhaar, address and bank details are visible only to the person, the CFO/Commercial Head and Finance on their production. Photos and documents sit in a private storage bucket, readable through short-lived signed links under the same rules. Wrong production codes are counted and lock joining after ten an hour. Every action is written to the activity log; deal changes can be undone, and the undo is logged too. The first owner is the Commercial Head's account, so nobody else can claim the company.
 
+**Notifications and live updates.** Database triggers write a notification for the right people when an agreement is sent, signed or approved; an invoice is submitted, checked, approved, paid or rejected; someone joins; a deal changes; or someone is checked in. The bell in the top bar shows them, and screens refresh by themselves through Supabase Realtime (waiting while you type or sign). Desktop alerts can be turned on from the bell.
+
 **Tests.**
-- Database: `supabase/tests/central_test.sql`, 96 checks run as each role on Postgres 16 (see the file header for the run order).
-- End to end: `tests/live-e2e.mjs` runs the real screens in Chromium against the real schema in PGlite: company setup, production, invites, sign-up and joining by code, profile and document uploads, agreement send/sign/approve, gate check-in, invoice from check-ins, approvals, payment run, Tally batch, Excel.
+- Database: `supabase/tests/central_test.sql` and `central_notify_test.sql`, 118 checks run as each role on Postgres 16 (see the file header for the run order).
+- End to end: `tests/live-e2e.mjs` runs the real screens in Chromium against the real schema in PGlite: company setup, production, invites, sign-up and joining by code, profile and document uploads, agreement send/sign/approve, gate check-in, invoice from check-ins, approvals, payment run, Tally batch, Excel, then a second device receiving the owner's change live.

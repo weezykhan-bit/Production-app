@@ -18,6 +18,7 @@ await db.exec(`insert into auth.users (id, email, raw_user_meta_data) values ('1
 await db.exec(read('supabase/migrations/20261030100000_central.sql'));
 await db.exec(read('supabase/migrations/20261030100100_central_storage.sql'));
 await db.exec(read('supabase/migrations/20261030100200_central_hardening.sql'));
+await db.exec(read('supabase/migrations/20261031100000_notifications.sql'));
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
 const retType = {};
 let q = Promise.resolve();
@@ -74,6 +75,23 @@ const FAKE = () => {
     rpc: (name, args = {}) => run('rpc', {name, args}),
     async upload(p, blob){ if (p.split('/')[0] !== user.id) throw new Error('new row violates row-level security policy'); files[p] = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); }); },
     async signed(paths){ return Object.fromEntries(paths.filter(p => files[p]).map(p => [p, files[p]])); },
+    // stands in for Supabase Realtime by checking every half second, as the signed-in person (so the same rules apply)
+    live(uid, onNote, onPulse){
+      let lastNote = null, lastPulse = null, stop = false;
+      const tick = async () => {
+        if (stop) return;
+        try {
+          const n = await run('select', {table:'notifications', order:'id', desc:true}), top = n[0]?.id || 0;
+          if (lastNote !== null && top > lastNote) n.filter(x => x.id > lastNote).reverse().forEach(onNote);
+          lastNote = top;
+          const pulse = (await run('select', {table:'production_pulse'})).map(x => x.at).sort().pop() || '';
+          if (lastPulse !== null && pulse !== lastPulse) onPulse();
+          lastPulse = pulse;
+        } catch {}
+        setTimeout(tick, 500);
+      };
+      tick(); return () => { stop = true; };
+    },
     auth: {
       current: async () => user,
       async signIn(login){ const u = await run('login', {login}); set(u, 'SIGNED_IN'); },
@@ -207,6 +225,33 @@ try {
   await click('.rail [data-id=activity]'); const logRows = await p.$$eval('main tbody tr', r => r.length); if (logRows < 15) errs.push('activity log short: ' + logRows); else ok(`activity log has ${logRows} entries`);
   for (const v of ['home','people','invoices','company','access']) { await click(`.rail [data-id=${v}]`); await over(v); }
   await p.screenshot({path:'/tmp/crewdesk-live-home.png', fullPage:true});
+
+  // 7. Live: the crew member has CrewDesk open on their phone; the owner changes their deal; it arrives without a refresh
+  const ctx2 = await b.newContext({viewport:{width:390, height:844}});
+  await ctx2.exposeFunction('pgCall', async (op, a) => { try { return await pg(op, a); } catch (e) { return {__error:e.message}; } });
+  await ctx2.addInitScript(FAKE);
+  const q2 = await ctx2.newPage();
+  q2.on('pageerror', e => errs.push('phone page error: ' + e.message));
+  await q2.route(/fonts\.(googleapis|gstatic)|jsdelivr/, r => r.abort());
+  await q2.goto('http://localhost:5188/'); await q2.waitForSelector('#li-user');
+  await q2.fill('#li-user', 'imran'); await q2.fill('#li-pass', 'whatever123'); await q2.click('form[data-form=login] button[type=submit]');
+  await q2.waitForSelector('[data-act=open-project]'); await q2.click('[data-act=open-project]'); await q2.waitForTimeout(400);
+  const before = await q2.evaluate(() => ({unread:S.notes.filter(n => !n.read).length, joining:memberIn(U.pid, S.session).joining}));
+  if (before.unread < 5) errs.push('crew should already have notifications (agreement, invoice, payment): ' + before.unread); else ok(`crew has ${before.unread} unread notifications`);
+  if (!(await q2.$('.bell .badge'))) errs.push('bell shows no unread count');
+  await click('.rail [data-id=people]'); await click('tr:has-text("Imran Shaikh")'); await click('.drawer [data-act=edit-deal]');
+  const newJoin = await ev(() => isoD(dayOff(-40))); await p.fill('#ob-join', newJoin); await click('form[data-form=deal] button[type=submit]');
+  let arrived = null;
+  for (let i = 0; i < 20 && !arrived; i++){ await q2.waitForTimeout(300); arrived = await q2.evaluate(j => S.notes[0]?.title === 'Your deal was updated' && memberIn(U.pid, S.session).joining === j ? S.notes.filter(n => !n.read).length : null, newJoin); }
+  if (!arrived) errs.push('the deal change did not reach the crew member’s open screen'); else ok(`owner’s change reached the crew member live (now ${arrived} unread)`);
+  await q2.click('.bell'); await q2.waitForTimeout(200);
+  const items = await q2.$$eval('.notes li button', b => b.map(x => x.querySelector('b').textContent));
+  if (!items.some(t => /paid/.test(t)) || !items.some(t => /approved/.test(t))) errs.push('notification list is missing payment/approval: ' + items.join(' | ')); else ok('bell lists: ' + items.slice(0, 4).join(' | '));
+  const o2 = await q2.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o2 > 1) errs.push('phone: sideways scroll with notifications open');
+  await q2.screenshot({path:'/tmp/crewdesk-notes-phone.png'});
+  await q2.click('[data-act=notes-read]'); await q2.waitForTimeout(400);
+  if (await q2.$('.bell .badge')) errs.push('mark all read left a badge'); else ok('mark all read clears the badge');
+  await ctx2.close();
 } catch (e) { errs.push('STOPPED: ' + e.message); await p.screenshot({path:'/tmp/crewdesk-live-fail.png', fullPage:true}); }
 console.log(errs.length ? 'ERRORS:\n' + errs.join('\n') : 'LIVE APP E2E PASSED');
 await b.close(); server.close(); process.exit(errs.length ? 1 : 0);

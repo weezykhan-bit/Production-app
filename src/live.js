@@ -30,6 +30,14 @@ async function liveDB(cfg){
       const out = unwrap(await sb.storage.from('kyc').createSignedUrls(paths, 3600));
       return Object.fromEntries(out.filter(x => x.signedUrl).map(x => [x.path, x.signedUrl]));
     },
+    // live updates: new notifications for this person, and a signal whenever one of their productions changes
+    live(uid, onNote, onPulse){
+      const ch = sb.channel('crewdesk-' + uid)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: 'user_id=eq.' + uid }, p => onNote(p.new))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'production_pulse' }, () => onPulse())
+        .subscribe();
+      return () => { sb.removeChannel(ch); };
+    },
     auth: {
       async current(){ return (await sb.auth.getSession()).data.session?.user || null; },
       async signIn(login, password){
@@ -60,9 +68,9 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts] = await Promise.all([
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
-    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000})]);
+    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60})]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -96,6 +104,7 @@ async function load(){
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
   next.log = acts.map(a => ({id:a.id, at:ts(a.at), by:a.by, pid:a.production_id, type:a.type, text:a.text, memberId:a.crew_id, invoiceId:a.invoice_id,
     field:a.field === 'end_date' ? 'end' : a.field, before:a.before, after:a.after, reverted:!!a.reverted_at}));
+  next.notes = notes.map(n => ({id:n.id, pid:n.production_id, at:ts(n.at), kind:n.kind, title:n.title, body:n.body || '', view:n.view, read:!!n.read_at}));
   S = next;
 }
 
@@ -287,6 +296,55 @@ reportsView = function(){
   return isOwner(r) || r === 'accounts' ? html.replace('<span class="small muted">before GST</span></div>\n    <div class="tablewrap">', '<span class="row"><span class="small muted">before GST</span><button class="btn sm" data-act="budget">Edit budgets</button></span></div>\n    <div class="tablewrap">') : html;
 };
 
+/* ---------------------------------------------------------------- notifications and live updates */
+I.bell = '<path d="M6 9a6 6 0 0 1 12 0c0 5 2 7 2 7H4s2-2 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>';
+const unread = () => (S.notes || []).filter(n => !n.read).length;
+const demoTopBar = topBar;
+topBar = function(){
+  const h = demoTopBar(), n = unread();
+  const bell = `<button class="bell" data-act="notes" aria-label="Notifications${n ? `, ${n} unread` : ''}" aria-expanded="${!!U.notesOpen}">${icon('bell', 20)}${n ? `<span class="badge">${n > 99 ? '99+' : n}</span>` : ''}</button>${U.notesOpen ? notesPanel() : ''}`;
+  return h.replace('<span class="grow"></span>', '<span class="grow"></span>' + bell);
+};
+function notesPanel(){
+  const list = S.notes || [], ask = 'Notification' in window && Notification.permission === 'default';
+  return `<section class="notes" aria-label="Notifications"><header class="spread"><b>Notifications</b>${unread() ? '<button class="btn ghost sm" data-act="notes-read">Mark all read</button>' : ''}</header>
+    ${ask ? '<button class="notes-perm" data-act="notes-perm">Turn on desktop alerts for when CrewDesk is open in another tab</button>' : ''}
+    <ul>${list.map(n => `<li><button data-act="note-open" data-id="${n.id}" class="${n.read ? '' : 'unread'}"><span class="dot" aria-hidden="true"></span><span class="tx"><b>${esc(n.title)}</b>${n.body ? `<span>${esc(n.body)}</span>` : ''}<time>${n.pid && proj(n.pid) ? esc(proj(n.pid).name) + ' · ' : ''}${fmtT(n.at)}</time></span></button></li>`).join('')
+      || '<li class="none">Nothing yet. Approvals, signatures, invoices and payments that concern you will show here.</li>'}</ul></section>`;
+}
+Object.assign(ACT, {
+  notes: () => { U.notesOpen = !U.notesOpen; U.menu = false; render(); },
+  'notes-read': async () => { if (await call('mark_notifications_read', {}) !== FAIL){ (S.notes || []).forEach(n => n.read = true); render(); } },
+  'notes-perm': async () => { try { await Notification.requestPermission(); } catch {} render(); },
+  'note-open': async el => {
+    const n = (S.notes || []).find(x => String(x.id) === el.dataset.id); U.notesOpen = false;
+    if (n && !n.read){ n.read = true; call('mark_notifications_read', {p_ids:[n.id]}); }
+    if (n?.pid && S.projects.some(p => p.id === n.pid)){ U.pid = n.pid; U.view = n.view || 'home'; }
+    U.drawer = null; U.modal = null; render(); window.scrollTo(0, 0);
+  },
+});
+document.addEventListener('click', e => { if (U.notesOpen && !e.target.closest('.notes') && !e.target.closest('.bell')){ U.notesOpen = false; render(); } });
+
+// Changes from other people arrive within a second or two. If you're typing, signing or have a form open,
+// the screen waits and catches up as soon as you're done, so nothing you've entered is lost.
+let stopLive = () => {}, liveTimer = null, pollTimer = null;
+function busy(){ const a = document.activeElement; return !!(U.modal || (a && a.matches('input,textarea,select')) || (document.querySelector('#sig') && U.sigInk)); }
+function refreshSoon(){
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(async () => { if (!S.session) return; try { await reload(); } catch { return; } if (busy()) U.pendingRender = true; else render(); }, 350);
+}
+function desktopAlert(n){ try { if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification(n.title, {body:n.body || '', tag:'crewdesk-' + n.id}); } catch {} }
+function startLive(uid){
+  stopLive();
+  const seen = new Set((S.notes || []).map(n => n.id));
+  const onNote = n => { if (seen.has(n.id)) return; seen.add(n.id); toast(n.title); desktopAlert(n); refreshSoon(); };
+  try { stopLive = DB.live(uid, onNote, refreshSoon) || (() => {}); } catch { stopLive = () => {}; }
+  clearInterval(pollTimer); pollTimer = setInterval(() => { if (!document.hidden) refreshSoon(); }, 60000);   // safety net
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (U.pendingRender && !busy()){ U.pendingRender = false; render(); } }, 60));
+const demoCloseModal = ACT['close-modal'];
+ACT['close-modal'] = () => { demoCloseModal(); if (U.pendingRender){ U.pendingRender = false; render(); } };
+
 /* ---------------------------------------------------------------- start */
 async function boot(){
   $('#app').innerHTML = '<main><div class="wrap"><p class="muted" style="padding:40px 0">Loading CrewDesk…</p></div></main>';
@@ -295,8 +353,8 @@ async function boot(){
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
     S.session = u?.id || null;
-    if (u){ try { await reload(); } catch (e) { toast(friendly(e.message)); } }
-    else S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
+    if (u){ try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); }
+    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], session:null}; }
     render();
   };
   DB.auth.onChange((event, u) => {

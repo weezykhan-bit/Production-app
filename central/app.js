@@ -593,7 +593,8 @@ function agreementBlock(m, canSign){
     ${a.status === 'sent' ? (canSign ? `<form class="stack" data-form="sign"><label class="f">Type your full name<input type="text" id="sg-name" value="" autocomplete="name"></label>
       <div class="stack" style="gap:6px"><div class="spread"><span class="small" style="font-weight:500">Draw your signature</span><button class="btn ghost sm" type="button" data-act="clear-sig">Clear</button></div><canvas id="sig" class="sigpad" aria-label="Signature pad"></canvas></div>
       <p class="err" id="sg-err"></p><div class="row"><button class="btn primary" type="submit">Sign agreement</button><span class="small muted">Your name, signature, time and a fingerprint of this text are saved.</span></div></form>`
-      : `<p class="muted">Complete your profile and documents first, then sign here.</p>`)
+      : m.userId === S.session ? `<p class="muted">Complete your profile and documents first, then sign here.</p>`
+      : `<p><span class="chip warn">Waiting for ${esc(user(m.userId)?.name || 'them')} to sign</span></p><p class="small muted" style="margin-top:6px">Only ${esc((user(m.userId)?.name || 'they').split(' ')[0])} can sign this, from their own CrewDesk login under <b>My setup</b>. Use <b>Send reminder</b> if they haven’t seen it.</p>`)
     : `<div class="row" style="align-items:flex-end;gap:16px">${a.sig ? `<img class="sigimg" src="${a.sig}" alt="Signature">` : ''}<div class="small"><b>Signed by ${esc(a.signedName)}</b><br><span class="muted">${fmtT(a.signedAt)}</span><br><span class="mono muted" style="overflow-wrap:anywhere">SHA-256 ${esc(String(a.hash || '').slice(0, 24))}…</span></div></div>`}`;
 }
 
@@ -943,7 +944,7 @@ function personDrawer(m){
     ${can.editDeal(r) ? `<button class="btn" data-act="edit-deal" data-id="${m.id}">${s.d.deal ? 'Edit deal' : 'Set deal'}</button>` : ''}
     ${s.next === 'sent' && can.sendAgreement(r) ? `<button class="btn primary" data-act="send-ag" data-id="${m.id}">Send agreement</button>` : ''}
     ${a.status === 'signed' && can.countersign(r) ? `<button class="btn primary" data-act="countersign" data-id="${m.id}">Approve agreement</button>` : ''}
-    ${s.next === 'profile' || s.next === 'docs' ? `<button class="btn" data-act="nudge" data-id="${m.id}">Send reminder</button>` : ''}
+    ${['profile','docs','signed'].includes(s.next) ? `<button class="btn" data-act="nudge" data-id="${m.id}">Send reminder</button>` : ''}
   </div>
   <section class="panel"><h3>Deal</h3><dl class="dl"><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label || '—')}</dd><dt>Payment terms</dt><dd>${m.terms} days after approval</dd><dt>App access</dt><dd>${ROLES[m.role].label}</dd></dl></section>
   <section class="panel"><h3>Profile & bank</h3>${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
