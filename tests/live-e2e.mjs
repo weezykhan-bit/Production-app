@@ -129,8 +129,9 @@ const click = async s => { await p.click(s); await p.waitForTimeout(150); };
 const fill = async (o) => { for (const [k, v] of Object.entries(o)) await p.fill('#' + k, String(v)); };
 const over = async tag => { const o = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) errs.push(`sideways scroll ${o}px at ${tag}`); };
 const text = async s => (await p.textContent(s)) || '';
-const signIn = async login => { await p.goto('http://localhost:5188/'); await p.waitForSelector('#li-user'); await fill({'li-user':login, 'li-pass':'whatever123'}); await click('form[data-form=login] button[type=submit]'); await p.waitForTimeout(400); };
-const signOut = async () => { await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); await click('.me'); await click('.menu [data-act=logout]'); await p.waitForSelector('#li-user'); };
+const pwOpen = () => p.evaluate(() => { const d = document.querySelector('.pwbox'); if (d && !d.open){ d.open = true; d.dispatchEvent(new Event('toggle')); } });
+const signIn = async login => { await p.goto('http://localhost:5188/'); await p.waitForSelector('.login-form'); await pwOpen(); await fill({'li-user':login, 'li-pass':'whatever123'}); await click('form[data-form=login] button[type=submit]'); await p.waitForTimeout(400); };
+const signOut = async () => { await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); await click('.me'); await click('.menu [data-act=logout]'); await p.waitForSelector('.login-form'); };
 const ev = (f, a) => p.evaluate(f, a);
 const IMG = path.join(ROOT, 'icon.svg');
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
@@ -162,7 +163,14 @@ try {
   await signOut();
 
   // 2. Line Producer signs up and joins; the invite matched by email gives LP access
-  await p.goto('http://localhost:5188/'); await click('[data-act=auth][data-id=signup]');
+  // typed details survive a failed sign-in, a redraw and switching tabs
+  await p.goto('http://localhost:5188/'); await p.waitForSelector('.gbtn');
+  if (await p.isVisible('#li-user')) errs.push('password form should fold away when Google is on');
+  await pwOpen(); await fill({'li-user':'manoj.typo', 'li-pass':'wrongpass1'}); await click('form[data-form=login] button[type=submit]'); await p.waitForTimeout(300);
+  await ev(() => render()); await click('[data-act=auth][data-id=signup]'); await click('[data-act=auth][data-id=in]');
+  const kept = await ev(() => [document.getElementById('li-user').value, document.getElementById('li-pass').value, document.getElementById('li-err').textContent]);
+  if (kept[0] !== 'manoj.typo' || kept[1] !== 'wrongpass1' || !(await p.isVisible('#li-user'))) errs.push('sign-in details were lost: ' + JSON.stringify(kept)); else ok('sign-in details kept after an error, a redraw and switching tabs');
+  await click('[data-act=auth][data-id=signup]'); await pwOpen();
   await fill({'su-name':'Manoj Patil', 'su-phone':'98330 44120', 'su-email':'manoj@test.in', 'su-user':'manoj', 'su-pass':'longpassword'});
   await click('form[data-form=signup] button[type=submit]'); if (!(await text('h2')).includes('Check your email')) throw new Error('sign-up did not ask to confirm email');
   await signIn('manoj'); await fill({'join-code':code}); await click('form[data-form=join] button[type=submit]');
@@ -170,7 +178,7 @@ try {
   await signOut();
 
   // 3. Crew member signs up with the invited mobile number, joins, fills profile and documents
-  await click('[data-act=auth][data-id=signup]');
+  await click('[data-act=auth][data-id=signup]'); await pwOpen();
   await fill({'su-name':'Imran Shaikh', 'su-phone':'9930018842', 'su-email':'imran@test.in', 'su-user':'imran', 'su-pass':'longpassword'});
   await click('form[data-form=signup] button[type=submit]'); await signIn('imran');
   await fill({'join-code':code.toLowerCase()}); await click('form[data-form=join] button[type=submit]');
@@ -307,7 +315,7 @@ try {
   const q2 = await ctx2.newPage();
   q2.on('pageerror', e => errs.push('phone page error: ' + e.message));
   await q2.route(/fonts\.(googleapis|gstatic)|jsdelivr/, r => r.abort());
-  await q2.goto('http://localhost:5188/'); await q2.waitForSelector('#li-user');
+  await q2.goto('http://localhost:5188/'); await q2.waitForSelector('.gbtn'); await q2.evaluate(() => { document.querySelector('.pwbox').open = true; });
   await q2.fill('#li-user', 'imran'); await q2.fill('#li-pass', 'whatever123'); await q2.click('form[data-form=login] button[type=submit]');
   await q2.waitForSelector('[data-act=open-project]'); await q2.click('[data-act=open-project]'); await q2.waitForTimeout(400);
   const before = await q2.evaluate(() => ({unread:S.notes.filter(n => !n.read).length, joining:memberIn(U.pid, S.session).joining}));

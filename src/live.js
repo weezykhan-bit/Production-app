@@ -274,10 +274,15 @@ function loginView(){
       <label class="f">Password<input type="password" id="li-pass" autocomplete="current-password"></label>
       <p class="err" id="li-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button></div></form>`;
   const gbtn = t => `<button class="btn gbtn" type="button" data-act="google">${GOOGLE_G}${t}</button>`;
-  const google = !U.google ? '' : mode === 'forgot' ? `<div class="or"><span>or skip the email</span></div>${gbtn('Sign in with Google instead')}
-      <p class="small muted">If your account uses a Gmail address, sign in with that Google account: you’re straight back in, with all your details. Then set a new password from your name menu if you want one.</p>`
-    : ['in','signup'].includes(mode) ? `${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}
-    <p class="small muted" style="margin-top:-6px">No password or confirmation email needed. Use the Gmail your Line Producer invited, if they used one.</p><div class="or"><span>or with a username and password</span></div>` : '';
+  // with Google switched on it is the main way in; the password form folds away (and stays open once used)
+  let main;
+  if (U.google && ['in','signup'].includes(mode)) main = `<div class="stack gcard"><h2>${mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}
+      <p class="small muted">${mode === 'signup' ? 'Your name and email come from Google. No password, no confirmation email.' : 'One tap with your Gmail. New here? This creates your account too.'} Use the Gmail your Line Producer invited, if they used one.</p></div>
+    <details class="pwbox" ${U.pwOpen ? 'open' : ''}><summary>${mode === 'signup' ? 'No Gmail? Create an account with a username and password' : 'Use a username and password instead'}</summary>${form.replace(/<h2>[^<]*<\/h2>/, '').replace('<button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button>', '')}</details>
+    ${mode === 'in' ? '<button class="btn ghost sm" type="button" data-act="forgot" style="justify-self:start">Forgot password?</button>' : ''}`;
+  else if (U.google && mode === 'forgot') main = `${form}<div class="or"><span>or skip the email</span></div>${gbtn('Sign in with Google instead')}
+      <p class="small muted">If your account uses a Gmail address, sign in with that Google account: you’re straight back in, with all your details. Then set a new password from your name menu if you want one.</p>`;
+  else main = form;
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
     <div class="row" style="gap:10px"><span class="brand" style="color:inherit"><i style="background:var(--accent-ink);color:var(--accent)">CD</i><span>CrewDesk</span></span></div>
@@ -285,14 +290,35 @@ function loginView(){
       <p>Onboard crew, cast and vendors once: deal, KYC, agreement, schedule, invoices and payments in one place, with every change on record.</p></div>
     <p class="small" style="opacity:.85;max-width:44ch">Your details are private. Bank, PAN and Aadhaar are seen only by you, the CFO, the Commercial Head and Finance on your production.</p>
   </section>
-  <section class="login-form">${['in','signup'].includes(mode) ? tabs + google + form : form + google}
+  <section class="login-form">${['in','signup'].includes(mode) ? tabs : ''}${main}
     <p class="small muted">Want to look around first? <a href="/central/" target="_blank" rel="noopener">Open the demo with sample data</a>.</p></section></div>`;
 }
+// keep what people type on the sign-in screens through redraws and errors (in memory only; cleared once they're in)
+const DRAFT = {};
+document.addEventListener('input', e => { const t = e.target; if (t.id && t.closest?.('.login-form')) DRAFT[t.id] = t.value; });
+document.addEventListener('toggle', e => { if (e.target.matches?.('.pwbox')) U.pwOpen = e.target.open; }, true);
+function fillDrafts(){
+  const from = {'li-user':['su-user','su-email'], 'fp-email':['su-email','li-user'], 'su-email':['fp-email','li-user']};
+  document.querySelectorAll('.login-form input').forEach(el => {
+    if (el.value) return;
+    let v = DRAFT[el.id];
+    if (!v) for (const k of from[el.id] || []) if (DRAFT[k] && (el.type !== 'email' || DRAFT[k].includes('@'))) { v = DRAFT[k]; break; }
+    if (v) el.value = v;
+  });
+}
+const demoRender = render;
+render = function(){
+  const a = document.activeElement, id = a?.id, sel = a && 'selectionStart' in a ? [a.selectionStart, a.selectionEnd] : null;
+  demoRender();
+  if (S.session) return;
+  fillDrafts();
+  const back = id && document.getElementById(id); if (back && back !== document.activeElement){ back.focus(); try { if (sel) back.setSelectionRange(...sel); } catch {} }
+};
 const demoModal = modalBody;
 modalBody = function(){
   const M = U.modal, head = (t, s = '') => `<div class="spread"><div class="stack" style="gap:4px"><h2>${t}</h2>${s ? `<p class="muted small">${s}</p>` : ''}</div><button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button></div>`;
   if (M.type === 'invite2'){
-    const p = proj(U.pid), msg = `Hi ${M.name.split(' ')[0]}, you're on ${p.name} in CrewDesk.\n\n1. Open ${location.origin}/ and create your account${M.phone ? ` with this mobile number: ${M.phone}` : M.email ? ` with this email: ${M.email}` : ''}\n2. Enter the production code: ${fmtCode(p.invite)}\n3. Add your bank details, PAN, masked Aadhaar and a photo\n4. Sign your agreement in the app`;
+    const p = proj(U.pid), msg = `Hi ${M.name.split(' ')[0]}, you're on ${p.name} in CrewDesk.\n\n1. Open ${location.origin}/ and ${U.google ? `tap “Continue with Google”${M.email ? ` with ${M.email}` : ''}${M.phone ? ` (it asks for your mobile: ${M.phone})` : ''}` : `create your account${M.phone ? ` with this mobile number: ${M.phone}` : M.email ? ` with this email: ${M.email}` : ''}`}\n2. Enter the production code: ${fmtCode(p.invite)}\n3. Add your bank details, PAN, masked Aadhaar and a photo\n4. Sign your agreement in the app`;
     return `${head('Invite ready', 'Their deal is saved. When they join with the code using this mobile or email, it’s linked to them automatically.')}
       <div class="copybox"><pre>${esc(msg)}</pre></div><div class="row"><button class="btn primary" data-act="copy" data-text="${esc(msg)}">${icon('copy', 16)}Copy message</button><a class="btn" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Open WhatsApp</a><button class="btn ghost" data-act="close-modal">Done</button></div>`;
   }
@@ -380,7 +406,7 @@ async function boot(){
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
     S.session = u?.id || null;
-    if (u){ try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); }
+    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); }
     else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], session:null}; }
     render();
   };
@@ -390,7 +416,7 @@ async function boot(){
     if (event === 'SIGNED_IN' && u?.id === S.session) return;
     if (['SIGNED_IN','SIGNED_OUT','PASSWORD_RECOVERY','USER_UPDATED'].includes(event)) enter(u);
   });
-  DB.auth.providers?.().then(x => { U.google = !!x.google; if (!S.session) render(); });
+  DB.auth.providers?.().then(x => { if (U.google === !!x.google) return; U.google = !!x.google; if (!S.session) render(); });
   await enter(await DB.auth.current());
   // pick up other people's changes when someone comes back to the tab
   addEventListener('focus', () => { if (S.session && !U.modal && !document.activeElement?.matches('input,textarea,select')) reload().then(render, () => {}); });
