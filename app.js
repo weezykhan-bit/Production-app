@@ -97,6 +97,8 @@ async function loadProject(id){
   if (canPay()) extra.push(BE.select('payment_batches', { eq: { project_id: id }, order: 'created_at', desc: true }).then(r => P.batches = r),
                           BE.rpc('cost_report', { p_project: id }).then(r => P.report = r || []));
   if (canManage()) extra.push(BE.select('call_sheet_views').then(r => P.views = r));
+  // a read counts only if it happened after the sheet was last published
+  P.readersOf = s => P.views.filter(v => v.call_sheet_id === s.id && s.published_at && v.viewed_at >= s.published_at).map(v => v.user_id);
   await Promise.all(extra);
 }
 async function refresh(){ const u = USER; try { if (P) await loadProject(P.id); } catch (e) { if (USER !== u) return; throw e; } if (USER === u) render(); }
@@ -679,7 +681,7 @@ function vSchedule(){
   const sheets = P.sheets.filter(s => s.status === 'published' || canManage());
   const up = sheets.filter(s => s.shoot_date >= today()), past = sheets.filter(s => s.shoot_date < today()).reverse();
   const nextFree = (() => { let d = today(); while (P.sheets.some(s => s.shoot_date === d)) d = addDays(d, 1); return d; })();
-  const seen = s => P.views.filter(v => v.call_sheet_id === s.id).length;
+  const seen = s => P.readersOf(s).length;
   const item = s => `<a class="item" href="${base}/sheet/${s.shoot_date}"><span class="avatar" style="border-radius:12px">${s.day_no || '–'}</span>
     <span class="grow"><b>${fmtDay(s.shoot_date)}</b><span class="meta" style="display:block">${esc(s.location || 'Location TBC')} · Call ${hm(s.general_call)}${myCall(s) ? ' · You ' + esc(myCall(s)) : ''}</span></span>
     ${s.status === 'draft' ? '<span class="pill">Draft</span>' : canManage() ? `<span class="pill">${seen(s)}/${(s.calls || []).length || P.members.length} read</span>` : ''}
@@ -694,7 +696,7 @@ function vSheet(date){
   if (!s) return canManage() ? (go(`/p/${P.id}/sheet/${date}/edit`), '') : '<div class="empty">No call sheet for this day.</div>';
   if (s.status === 'published' && !canManage()) BE.rpc('mark_call_sheet_viewed', { p_id: s.id }).catch(() => {});
   const rep = P.reports.find(r => r.shoot_date === date);
-  const readers = P.views.filter(v => v.call_sheet_id === s.id).map(v => v.user_id);
+  const readers = P.readersOf(s);
   return `<a class="btn ghost sm" href="${base}/schedule">← Schedule</a>
   ${sheetDoc(s)}
   ${canManage() ? `<div class="actions"><a class="btn ghost" href="${base}/sheet/${date}/edit">Edit</a>

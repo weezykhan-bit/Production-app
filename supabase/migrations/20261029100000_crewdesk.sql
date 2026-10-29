@@ -296,8 +296,10 @@ create table public.contract_events (
   action       text not null
 );
 
+-- Runs with the caller's rights: inside create_contract that is the owner; called directly by a user,
+-- row-level security limits it to what they can already see.
 create function public.contract_fields(p_project uuid, p_user uuid) returns jsonb
-language sql stable security definer set search_path = public as $$
+language sql stable set search_path = public as $$
   select jsonb_build_object(
     'date',             to_char(now(), 'DD Mon YYYY'),
     'project',          pr.name,
@@ -321,8 +323,9 @@ language sql stable security definer set search_path = public as $$
   where pr.id = p_project and m.user_id = p_user
 $$;
 
+-- Caller's rights: works inside the contract actions; a direct call is refused by row-level security.
 create function public.log_contract(p_id uuid, p_action text) returns void
-language sql security definer set search_path = public as $$
+language sql set search_path = public as $$
   insert into contract_events (contract_id, actor, action) values (p_id, auth.uid(), p_action)
 $$;
 
@@ -673,8 +676,8 @@ declare cs call_sheets;
 begin
   select * into cs from call_sheets where id = p_id;
   perform must(can_manage(cs.project_id), 'Only the producer or production manager can publish call sheets');
-  update call_sheets set status = 'published', published_at = now() where id = p_id returning * into cs;
-  delete from call_sheet_views where call_sheet_id = p_id;   -- re-publishing asks everyone to look again
+  -- re-publishing asks everyone to look again: only views after published_at count
+  update call_sheets set status = 'published', published_at = clock_timestamp() where id = p_id returning * into cs;
   return cs;
 end $$;
 
@@ -682,7 +685,8 @@ create function public.mark_call_sheet_viewed(p_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform must(is_member((select project_id from call_sheets where id = p_id)), 'Not on this project');
-  insert into call_sheet_views (call_sheet_id, user_id) values (p_id, auth.uid()) on conflict do nothing;
+  insert into call_sheet_views (call_sheet_id, user_id, viewed_at) values (p_id, auth.uid(), clock_timestamp())
+  on conflict (call_sheet_id, user_id) do update set viewed_at = clock_timestamp();
 end $$;
 
 create table public.day_reports (
@@ -761,11 +765,19 @@ alter table public.attendance         enable row level security;
 
 create policy "own profile"        on public.profiles for select using (id = auth.uid());
 create policy "edit own profile"   on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
-revoke update on public.profiles from anon, authenticated;
-grant update (username, full_name, phone, legal_name, pan, gstin, address, state_code, bank_holder, bank_name, bank_account, bank_ifsc)
-  on public.profiles to authenticated;
-revoke all on public.directory from anon;
-grant select on public.directory to authenticated;
+
+-- People edit their own profile, but never the account it belongs to or the email it signs in with.
+create function public.guard_profile() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if current_user in ('authenticated', 'anon') and (new.id is distinct from old.id or new.email is distinct from old.email
+     or new.created_at is distinct from old.created_at) then
+    raise exception 'Your account ID and email can''t be changed here' using errcode = '42501';
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+create trigger guard_profile before update on public.profiles for each row execute function public.guard_profile();
 
 create policy "members see project"  on public.projects for select using (is_member(id));
 create policy "members see crew"     on public.members  for select using (is_member(project_id));
@@ -787,27 +799,9 @@ create policy "call sheet views"     on public.call_sheet_views for select
 create policy "day reports"          on public.day_reports for select using (is_member(project_id));
 create policy "attendance"           on public.attendance for select using (user_id = auth.uid() or can_pay(project_id));
 
--- every write goes through the functions above
-revoke insert, update, delete on public.projects, public.members, public.contract_templates, public.contracts,
-  public.contract_events, public.invoices, public.payment_batches, public.budget_lines, public.call_sheets,
-  public.call_sheet_views, public.day_reports, public.attendance from anon, authenticated;
-revoke insert, delete on public.profiles from anon, authenticated;
-
-do $$
-declare f text;
-begin
-  -- signed-in only
-  foreach f in array array['create_project','update_project','join_project','update_member','create_contract','edit_contract',
-    'send_contract','sign_contract','countersign_contract','void_contract','save_template','submit_invoice','hod_approve_invoice',
-    'approve_invoice','reject_invoice','create_payment_batch','mark_batch_paid','set_budget','cost_report','save_call_sheet',
-    'publish_call_sheet','mark_call_sheet_viewed','save_day_report','scan_id_card','contract_fields','log_contract']
-  loop
-    execute format('revoke execute on function public.%I from public, anon', f);
-    execute format('grant execute on function public.%I to authenticated', f);
-  end loop;
-  execute 'revoke execute on function public.contract_fields, public.log_contract, public.handle_new_user from authenticated';
-end $$;
-grant execute on function public.login_email, public.username_available to anon, authenticated;
+-- Writes: no table above has an insert, update or delete policy (except updating your own profile),
+-- so row-level security refuses every direct write. All changes go through the functions above,
+-- each of which checks who is calling. Anonymous visitors fail those checks (no auth.uid()).
 
 -- ================================================================ built-in contract template
 
@@ -841,3 +835,12 @@ AND
 9. GOVERNING LAW. This agreement is governed by the laws of India.
 
 Signed electronically through CrewDesk. The signature record (name, drawn signature, time and document fingerprint) is attached below.$t$);
+
+-- ================================================================ hardening
+
+-- Pin the helper functions to this schema too, so a caller can't swap in look-alike functions.
+alter function public.gstin_valid(text)             set search_path = public;
+alter function public.inr(numeric)                  set search_path = public;
+alter function public.render_template(text, jsonb)  set search_path = public;
+alter function public.kyc_missing(public.profiles)  set search_path = public;
+alter function public.must(boolean, text)           set search_path = public;

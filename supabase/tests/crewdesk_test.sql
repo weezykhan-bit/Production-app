@@ -73,6 +73,8 @@ select t_err($$select update_member((select project from ctx), uid('01'), '{"rol
 reset role;
 select t_as(uid('05')::text); set role authenticated;
 select t_err($$select update_member((select project from ctx), uid('05'), '{"rate":99999}')$$, 'Only the producer or production manager', 'crew cannot change own rate');
+update members set rate = 99999 where user_id = auth.uid();
+select t_eq((select rate from members where user_id = uid('05')), 6000::bigint, 'direct edit of own deal changes nothing');
 select t_eq((select count(*)::int from members), 6, 'crew sees the crew list');
 select t_eq((select bank_account from directory where id = uid('04')), null::text, 'crew cannot see a colleague''s bank details');
 reset role;
@@ -212,6 +214,9 @@ select mark_call_sheet_viewed((select id from cs));
 reset role;
 select t_as(uid('02')::text); set role authenticated;
 select t_eq((select count(*)::int from call_sheet_views), 1, 'manager sees who has read the call sheet');
+select pg_sleep(0.01);
+select publish_call_sheet((select id from cs));
+select t_eq((select count(*)::int from call_sheet_views v join call_sheets c on c.id = v.call_sheet_id where v.viewed_at >= c.published_at), 0, 're-publishing asks everyone to read again');
 select save_day_report((select project from ctx), '{"shoot_date":"2026-12-01","first_shot":"08:10","wrap":"19:45","scenes_done":"12, 14","setups":22}');
 select t_eq((select (scan_id_card((select project from ctx), (select card_code from members where user_id = uid('05')))) ->> 'name'), 'Chetan Focus Puller', 'ID card scan checks crew in');
 select t_eq((select (scan_id_card((select project from ctx), lower((select card_code from members where user_id = uid('05'))))) ->> 'out' is not null), true, 'second scan checks out');
@@ -225,8 +230,15 @@ reset role;
 
 -- direct writes are closed
 select t_as(uid('01')::text); set role authenticated;
-select t_err($$update invoices set payable = 1$$, 'permission denied', 'no direct invoice edits');
-select t_err($$update profiles set email = 'x@y.z' where id = auth.uid()$$, 'permission denied', 'email is not user-editable');
+update invoices set payable = 1;
+select t_eq((select count(*)::int from invoices where payable = 1), 0, 'direct invoice edits change nothing (row-level security)');
+select t_err($$insert into projects (name, company_name) values ('Sneaky', 'X')$$, 'row-level security', 'no direct project inserts');
+select t_err($$select log_contract((select id from c1), 'forged')$$, 'row-level security', 'cannot forge contract history');
+select t_err($$update profiles set email = 'x@y.z' where id = auth.uid()$$, 'can''t be changed', 'email is not user-editable');
+select t_eq((select contract_fields((select project from ctx), uid('05'))), null::jsonb, 'producer cannot pull KYC through contract_fields directly');
+reset role;
+select t_as(uid('07')::text); set role authenticated;
+select t_eq((select contract_fields((select project from ctx), uid('05'))), null::jsonb, 'outsider cannot read KYC via contract_fields');
 reset role;
 select t_as(''); set role anon;
 select t_eq((select count(*)::int from projects), 0, 'anonymous sees nothing');
