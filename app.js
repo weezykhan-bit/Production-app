@@ -263,7 +263,7 @@ function topBar(){
     ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
     <span class="grow"></span>
     <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
-    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="logout">Sign out</button></div>` : ''}
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="set-pass">Set or change password</button><button data-act="logout">Sign out</button></div>` : ''}
   </header>`;
 }
 
@@ -296,7 +296,7 @@ function projectsView(){
       <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
     </button>`; }).join('')}</div>` : `<div class="empty">You aren’t on any production yet. Enter the production code your Line Producer or Head of Production sent you.</div>`}
   <section class="panel" style="max-width:560px"><h3>Join a production</h3>
-    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>
+    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>${me().phone ? '' : `<label class="f" style="flex:1 1 170px">Your mobile <span class="hint">finds your invite</span><input type="tel" id="join-phone" autocomplete="tel" placeholder="98200 00000"></label>`}
     <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
     <p class="err" id="join-err"></p></section>`;
 }
@@ -1353,6 +1353,9 @@ async function liveDB(cfg){
         const { error } = await sb.auth.signInWithPassword({ email, password });
         if (error) fail(/confirm/i.test(error.message) ? 'Confirm your email first: open the link we sent you.' : 'That username and password don’t match.');
       },
+      // which sign-in buttons to show: only providers switched on in Supabase
+      async providers(){ try { const r = await fetch(cfg.url + '/auth/v1/settings', { headers: { apikey: cfg.anonKey } }); return (await r.json()).external || {}; } catch { return {}; } },
+      async google(){ unwrap(await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/', queryParams: { prompt: 'select_account' } } })); },
       async signUp({ email, password, username, full_name, phone }){
         const data = unwrap(await sb.auth.signUp({ email, password, options: { data: { username, full_name, phone }, emailRedirectTo: location.origin + location.pathname } }));
         return { needsConfirm: !data.session };
@@ -1423,6 +1426,7 @@ function friendly(m){
   const map = [[/pan_check/, 'PAN is 10 characters: 5 letters, 4 numbers, 1 letter (like ABCDE1234F).'], [/bank_ifsc_check/, 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers (like HDFC0001234).'],
     [/bank_account_check/, 'Account numbers are 6 to 20 digits.'], [/gstin_check/, 'That GSTIN doesn’t look right. Check every character.'], [/companies_check/, 'The GSTIN must contain the company PAN.'],
     [/tan_check/, 'TAN is 10 characters: 4 letters, 5 numbers, 1 letter (like MUMS12345C).'], [/aadhaar_last4/, 'Enter the last 4 digits of your Aadhaar.'],
+    [/rate limit|too many (emails|requests)|429/i, 'Too many sign-up emails went out in the last hour. Use “Continue with Google”, or try again in an hour.'],
     [/JWT|not authenticated|session/i, 'Your session expired. Sign in again.'], [/Failed to fetch|NetworkError|Load failed/i, 'No connection. Check your internet and try again.']];
   for (const [re, t] of map) if (re.test(m)) return t;
   return m.replace(/^ERROR:\s*/, '');
@@ -1442,7 +1446,10 @@ async function uploadDoc(kind, file){
 
 /* ---------------------------------------------------------------- actions */
 const step = async (fn, id, msg) => { const i = S.invoices.find(x => x.id === id); if (await call(fn, {p_id:id}) !== FAIL){ U.drawer = null; done(`${i?.no || 'Invoice'} ${msg}`); } };
+const GOOGLE_G = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.2C12.5 13.7 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.5 5.8c4.4-4 6.8-10 6.8-17.2z"/><path fill="#FBBC05" d="M10.6 28.5c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.2 0-11.5-4.2-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
 Object.assign(ACT, {
+  'set-pass': () => { U.menu = false; U.modal = {type:'newpass'}; render(); },
+  google: async () => { try { await DB.auth.google(); } catch (e) { toast(friendly(e.message)); } },
   'demo-login': () => {}, reset: () => {}, 'reset-empty': () => {},
   logout: async () => { U.menu = false; U.chat = false; U.chatLog = []; U.pid = null; U.drawer = null; U.modal = null; await DB.auth.signOut(); },
   forgot: () => { U.auth = 'forgot'; render(); },
@@ -1483,7 +1490,8 @@ Object.assign(FORMS, {
     try { await DB.auth.resetPassword(email); U.auth = 'sent'; U.sentTo = email; U.sentWhat = 'reset'; render(); } catch (e) { err('fp-err', friendly(e.message)); } },
   newpass: async () => { const pw = $('#np-pass').value; if (pw.length < 8) return err('npw-err', 'Use at least 8 characters.');
     try { await DB.auth.updatePassword(pw); U.modal = null; renderLayer(); toast('Password changed'); } catch (e) { err('npw-err', friendly(e.message)); } },
-  join: async () => { const r = await call('join_production', {p_code:v('join-code'), p_kind:v('join-kind')}, 'join-err'); if (r === FAIL) return;
+  join: async () => { if (v('join-phone') && await call('set_my_phone', {p_phone:v('join-phone')}, 'join-err') === FAIL) return;
+    const r = await call('join_production', {p_code:v('join-code'), p_kind:v('join-kind')}, 'join-err'); if (r === FAIL) return;
     if (!r.ok) return err('join-err', r.error); U.pid = r.production_id; U.view = 'home'; done(r.already ? `You’re already on ${r.name}` : `You joined ${r.name}`); },
   project: async () => { if (!v('np-name')) return err('np-err', 'Give the production a name.');
     const id = await call('create_production', {p:{name:v('np-name'), format:v('np-format'), platform:v('np-plat'), status:v('np-status'), planned_eps:+v('np-eps') || 1, location:v('np-loc'), start_date:v('np-start')}}, 'np-err');
@@ -1564,6 +1572,11 @@ function loginView(){
       <label class="f">Username or email<input type="text" id="li-user" autocomplete="username"></label>
       <label class="f">Password<input type="password" id="li-pass" autocomplete="current-password"></label>
       <p class="err" id="li-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button></div></form>`;
+  const gbtn = t => `<button class="btn gbtn" type="button" data-act="google">${GOOGLE_G}${t}</button>`;
+  const google = !U.google ? '' : mode === 'forgot' ? `<div class="or"><span>or skip the email</span></div>${gbtn('Sign in with Google instead')}
+      <p class="small muted">If your account uses a Gmail address, sign in with that Google account: you’re straight back in, with all your details. Then set a new password from your name menu if you want one.</p>`
+    : ['in','signup'].includes(mode) ? `${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}
+    <p class="small muted" style="margin-top:-6px">No password or confirmation email needed. Use the Gmail your Line Producer invited, if they used one.</p><div class="or"><span>or with a username and password</span></div>` : '';
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
     <div class="row" style="gap:10px"><span class="brand" style="color:inherit"><i style="background:var(--accent-ink);color:var(--accent)">CD</i><span>CrewDesk</span></span></div>
@@ -1571,7 +1584,7 @@ function loginView(){
       <p>Onboard crew, cast and vendors once: deal, KYC, agreement, schedule, invoices and payments in one place, with every change on record.</p></div>
     <p class="small" style="opacity:.85;max-width:44ch">Your details are private. Bank, PAN and Aadhaar are seen only by you, the CFO, the Commercial Head and Finance on your production.</p>
   </section>
-  <section class="login-form">${['in','signup'].includes(mode) ? tabs : ''}${form}
+  <section class="login-form">${['in','signup'].includes(mode) ? tabs + google + form : form + google}
     <p class="small muted">Want to look around first? <a href="/central/" target="_blank" rel="noopener">Open the demo with sample data</a>.</p></section></div>`;
 }
 const demoModal = modalBody;
@@ -1588,7 +1601,7 @@ modalBody = function(){
       <p class="err" id="bd-err"></p><div class="row"><button class="btn primary" type="submit">Save budgets</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'admin') return `${head('Give owner access', 'Owners see and run every production: deals, agreements, final approvals and company details.')}
-    <form class="stack" data-form="admin"><div class="grid2"><label class="f">Their username<input type="text" id="ad-user" autocomplete="off"></label><label class="f">As<select id="ad-role"><option value="cfo">CFO</option><option value="commercial">Commercial Head</option></select></label></div>
+    <form class="stack" data-form="admin"><div class="grid2"><label class="f">Their username or email<input type="text" id="ad-user" autocomplete="off"></label><label class="f">As<select id="ad-role"><option value="cfo">CFO</option><option value="commercial">Commercial Head</option></select></label></div>
     <p class="small muted">They need a CrewDesk account first.</p><p class="err" id="ad-err"></p><div class="row"><button class="btn primary" type="submit">Give access</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   if (M.type === 'newpass') return `${head('Choose a new password')}<form class="stack" data-form="newpass"><label class="f">New password <span class="hint">at least 8 characters</span><input type="password" id="np-pass" autocomplete="new-password"></label><p class="err" id="npw-err"></p><button class="btn primary" type="submit" style="justify-self:start">Save password</button></form>`;
   return demoModal();
@@ -1659,6 +1672,9 @@ ACT['close-modal'] = () => { demoCloseModal(); if (U.pendingRender){ U.pendingRe
 async function boot(){
   $('#app').innerHTML = '<main><div class="wrap"><p class="muted" style="padding:40px 0">Loading CrewDesk…</p></div></main>';
   const cfg = window.CREWDESK_CONFIG || {};
+  // coming back from Google with an error (cancelled, or the provider is switched off)
+  const back = new URLSearchParams(location.search + '&' + location.hash.slice(1)), backErr = back.get('error_description');
+  if (backErr){ history.replaceState(null, '', location.pathname); setTimeout(() => toast(/cancel|denied/i.test(backErr) ? 'Google sign-in was cancelled.' : 'Google sign-in didn’t work: ' + backErr.replace(/\+/g, ' ')), 300); }
   try { DB = window.CREWDESK_TEST_DB ? await window.CREWDESK_TEST_DB() : await liveDB(cfg); }
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
@@ -1669,9 +1685,11 @@ async function boot(){
   };
   DB.auth.onChange((event, u) => {
     if (event === 'PASSWORD_RECOVERY'){ U.modal = {type:'newpass'}; }
+    if (event === 'SIGNED_OUT') U.auth = 'in';
     if (event === 'SIGNED_IN' && u?.id === S.session) return;
     if (['SIGNED_IN','SIGNED_OUT','PASSWORD_RECOVERY','USER_UPDATED'].includes(event)) enter(u);
   });
+  DB.auth.providers?.().then(x => { U.google = !!x.google; if (!S.session) render(); });
   await enter(await DB.auth.current());
   // pick up other people's changes when someone comes back to the tab
   addEventListener('focus', () => { if (S.session && !U.modal && !document.activeElement?.matches('input,textarea,select')) reload().then(render, () => {}); });

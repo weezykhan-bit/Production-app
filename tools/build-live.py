@@ -27,7 +27,7 @@ js = re.sub(r"    try \{ const k = t\.dataset\.upload, data = await readImage.*?
             "    try { await uploadDoc(t.dataset.upload, file); }\n    catch (x) { toast(x.message); }", js, count=1, flags=re.S)
 if 'uploadDoc(t.dataset.upload' not in js: sys.exit('build-live: upload handler not patched')
 rep('<p class="note">Demo: data stays in this browser. Names, PAN and bank numbers are made up.</p>', '<p class="note">Private by design: each person sees only what their role allows, and every change is logged.</p>')
-rep('<button data-act="reset">Reset demo data</button>', '')
+rep('<button data-act="reset">Reset demo data</button>', '<button data-act="set-pass">Set or change password</button>')
 rep('${can.editDeal(r) ? `<button class="btn" data-act="edit-deal"', '${can.editDeal(r) && !m.synthetic ? `<button class="btn" data-act="edit-deal"')
 rep("roleOpts = Object.entries(ROLES).filter(([k]) => isOwner(r) || ['crew','vendor','hod'].includes(k))", "roleOpts = Object.entries(ROLES).filter(([k]) => !ROLES[k].owner && (isOwner(r) || ['crew','vendor','hod'].includes(k)))")
 rep('<div class="docph">Sample ${label}<br>(demo placeholder)</div>', '<div class="docph">${label} saved<br>(preview not available)</div>', 2)

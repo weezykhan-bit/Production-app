@@ -20,6 +20,7 @@ await db.exec(read('supabase/migrations/20261030100100_central_storage.sql'));
 await db.exec(read('supabase/migrations/20261030100200_central_hardening.sql'));
 await db.exec(read('supabase/migrations/20261031100000_notifications.sql'));
 await db.exec(read('supabase/migrations/20261101100000_deductions_and_lists.sql'));
+await db.exec(read('supabase/migrations/20261102100000_google_signin.sql'));
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
 const retType = {};
 let q = Promise.resolve();
@@ -52,6 +53,11 @@ async function pg(op, a){
     const id = (await db.query('select gen_random_uuid() id')).rows[0].id;
     await db.query('insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)', [id, a.email, JSON.stringify({username:a.username, full_name:a.full_name, phone:a.phone})]);
     return {id, email:a.email};
+  }
+  if (op === 'google'){   // what Supabase does when Google sends someone back: a confirmed email, their Google name, no username or mobile
+    let r = (await db.query('select id, email from auth.users where email = $1', [a.email])).rows[0];
+    if (!r){ r = {id:(await db.query('select gen_random_uuid() id')).rows[0].id, email:a.email}; await db.query('insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)', [r.id, a.email, JSON.stringify({name:a.name, avatar_url:'https://lh3.googleusercontent.com/x'})]); }
+    return r;
   }
   if (op === 'usernameFree') return (await db.query('select username_available($1) ok', [a.u])).rows[0].ok;
   throw new Error('unknown op ' + op);
@@ -98,6 +104,8 @@ const FAKE = () => {
       async signIn(login){ const u = await run('login', {login}); set(u, 'SIGNED_IN'); },
       async signUp(o){ await run('signup', o); return {needsConfirm:true}; },
       usernameFree: u => run('usernameFree', {u}),
+      providers: async () => ({google:true, email:true}),
+      async google(){ const u = await run('google', {email:'kavya.rao@gmail.com', name:'Kavya Rao'}); set(u, 'SIGNED_IN'); },
       async resetPassword(){}, async updatePassword(){},
       async signOut(){ set(null, 'SIGNED_OUT'); },
       onChange(fn){ fns.push(fn); }
@@ -249,6 +257,21 @@ try {
   const sheets = await ev(() => Object.keys(workbookData(U.pid))); if (!['Artists','Crew','Vendors'].every(k => sheets.includes(k))) errs.push('Excel sheets: ' + sheets.join(', ')); else ok('Excel has separate Artists, Crew and Vendors sheets');
   const inv1 = await ev(() => workbookData(U.pid).Invoices[0]); if (inv1['Deductions (₹)'] !== 50 || inv1.Remarks !== 'Return the walkie') errs.push('Excel invoice row lacks deductions: ' + JSON.stringify(inv1));
   if (await p.$('main [data-act=adjust]')) errs.push('deductions still editable after Tally');
+  // invite someone by mobile; they sign in with Google, add their mobile when joining, and land on their invite
+  await click('.rail [data-id=people]'); await click('[data-act=onboard]'); await fill({'ob-name':'Kavya Rao', 'ob-rate':3500, 'ob-phone':'98111 22233'});
+  await p.selectOption('#ob-dept', 'Hair & Makeup'); await p.selectOption('#ob-job', 'Makeup Artist'); await click('form[data-form=onboard] button[type=submit]'); await click('.dialog [data-act=close-modal]');
+  await signOut();
+  if (!(await p.$('.gbtn'))) throw new Error('no Google button on the sign-in screen');
+  await click('[data-act=forgot]'); if (!(await text('.login-form')).includes('Sign in with Google instead')) errs.push('forgot-password screen lacks the Google route'); await click('[data-act=auth][data-id=in]');
+  await click('[data-act=auth][data-id=signup]'); if (!(await text('.gbtn')).includes('Sign up with Google')) errs.push('sign-up tab lacks the Google button');
+  await click('.gbtn'); await p.waitForTimeout(500); await over('google first visit');
+  if (!(await p.$('#join-phone'))) throw new Error('Google user is not asked for a mobile when joining');
+  await fill({'join-code':code, 'join-phone':'+91 98111 22233'}); await click('form[data-form=join] button[type=submit]'); await p.waitForTimeout(300);
+  const kav = await ev(() => { const m = memberIn(U.pid, S.session); return m && {job:m.job, rate:m.rate, name:me().name}; });
+  if (!kav || kav.job !== 'Makeup Artist' || kav.rate !== 3500 || kav.name !== 'Kavya Rao') errs.push('Google user did not take up the mobile invite: ' + JSON.stringify(kav) + ' ' + await text('#join-err').catch(() => ''));
+  else ok('Google sign-in: name from Google, mobile added at join, invite taken up');
+  await click('.me'); if (!(await p.$('.menu [data-act=set-pass]'))) errs.push('no “set password” in the menu'); else { await click('.menu [data-act=set-pass]'); if (!(await p.$('#np-pass'))) errs.push('set password form missing'); await p.keyboard.press('Escape'); await click('[data-act=close-modal]').catch(() => {}); }
+  await signOut(); await signIn('fowzan'); await click('[data-act=open-project]');
   await click('.rail [data-id=reports]'); await over('reports');
   const [dl] = await Promise.all([p.waitForEvent('download', {timeout:5000}).catch(() => null), click('[data-act=excel]')]);
   if (!dl) errs.push('no Excel download'); else ok('Excel downloaded: ' + dl.suggestedFilename());

@@ -46,7 +46,7 @@ select setup_company(jsonb_build_object('legal','Test Films Pvt Ltd','pan','AABC
 select ok(company_info() ->> 'state' = '27', 'state follows the GSTIN, not the dropdown');
 select ok(company_info() -> 'bank' ->> 'acct' = '50200011112222', 'owner sees the full bank account, spaces removed');
 select add_admin('ritika', 'cfo');
-select refused($$select add_admin('nobody_here', 'cfo')$$, 'No account');
+select refused($$select add_admin('nobody_here', 'cfo')$$, 'No (CrewDesk )?account');
 select create_production('{"name":"Saath Phere","format":"Long-format fiction · daily","planned_eps":400,"status":"Shooting"}') as pid \gset
 select code as code0 from productions where id = :'pid' \gset
 select ok(:'code0' ~ '^SAAT[A-Z2-9]{4}$', 'production code made from the name');

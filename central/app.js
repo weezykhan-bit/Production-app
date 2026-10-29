@@ -438,7 +438,7 @@ function projectsView(){
       <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
     </button>`; }).join('')}</div>` : `<div class="empty">You aren’t on any production yet. Enter the production code your Line Producer or Head of Production sent you.</div>`}
   <section class="panel" style="max-width:560px"><h3>Join a production</h3>
-    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>
+    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>${me().phone ? '' : `<label class="f" style="flex:1 1 170px">Your mobile <span class="hint">finds your invite</span><input type="tel" id="join-phone" autocomplete="tel" placeholder="98200 00000"></label>`}
     <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
     <p class="err" id="join-err"></p></section>`;
 }
