@@ -1,0 +1,13 @@
+import {PGlite} from '@electric-sql/pglite';
+import fs from 'fs';
+const dir = process.argv[2];
+const read = f => fs.readFileSync(dir + f, 'utf8').split('\n').filter(l => !l.startsWith('\\')).join('\n');
+const db = new PGlite();
+let ok = 0; const notices = [];
+const t0 = Date.now();
+await db.exec(read('/tests/supabase_stub.sql'));
+await db.exec(read('/migrations/20261029100000_crewdesk.sql'));
+console.log('schema loaded in', Date.now() - t0, 'ms');
+await db.exec("do $$ begin execute format('grant temporary on database %I to authenticated', current_database()); end $$;");
+const res = await db.exec(read('/tests/crewdesk_test.sql'), {onNotice: n => { if (n.message.startsWith('ok')) ok++; }});
+console.log('ok checks:', ok);
