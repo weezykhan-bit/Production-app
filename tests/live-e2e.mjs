@@ -21,6 +21,7 @@ await db.exec(read('supabase/migrations/20261030100200_central_hardening.sql'));
 await db.exec(read('supabase/migrations/20261031100000_notifications.sql'));
 await db.exec(read('supabase/migrations/20261101100000_deductions_and_lists.sql'));
 await db.exec(read('supabase/migrations/20261102100000_google_signin.sql'));
+await db.exec(read('supabase/migrations/20261103100000_removals.sql'));
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
 const retType = {};
 let q = Promise.resolve();
@@ -271,7 +272,27 @@ try {
   if (!kav || kav.job !== 'Makeup Artist' || kav.rate !== 3500 || kav.name !== 'Kavya Rao') errs.push('Google user did not take up the mobile invite: ' + JSON.stringify(kav) + ' ' + await text('#join-err').catch(() => ''));
   else ok('Google sign-in: name from Google, mobile added at join, invite taken up');
   await click('.me'); if (!(await p.$('.menu [data-act=set-pass]'))) errs.push('no “set password” in the menu'); else { await click('.menu [data-act=set-pass]'); if (!(await p.$('#np-pass'))) errs.push('set password form missing'); await p.keyboard.press('Escape'); await click('[data-act=close-modal]').catch(() => {}); }
+  // the LP asks for Kavya to be removed; the owner sees it on Home and approves; with no history she is deleted
+  await signOut(); await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=people]');
+  await click('#people-rows tr:has-text("Kavya Rao")'); if (await p.$('.drawer [data-act=rm-open]')) errs.push('LP sees a direct remove button');
+  await click('.drawer [data-act=rm-ask]'); await p.fill('#rm-why', 'Hired twice by mistake'); await click('form[data-form=rmask] button[type=submit]');
+  if (!(await text('.drawer')).includes('Removal asked')) errs.push('request not shown on the person: ' + await text('#rm-err').catch(() => ''));
   await signOut(); await signIn('fowzan'); await click('[data-act=open-project]');
+  if (!(await text('main')).includes('Decide: remove Kavya Rao?')) errs.push('owner Home lacks the removal request');
+  await click('.rail [data-id=people]'); await click('[data-act=pf][data-id=asked]'); await click('#people-rows tr:has-text("Kavya Rao")');
+  await click('.drawer [data-act=rm-decide][data-yes]'); await click('form[data-form=rmdecide] button[type=submit]');
+  if (await ev(() => S.members.some(m => user(m.userId)?.name === 'Kavya Rao'))) errs.push('Kavya still on the production after approval: ' + await text('#rm-err').catch(() => ''));
+  else ok('LP asked, owner approved: Kavya (no history) deleted');
+  // the owner removes Imran directly: he has paid invoices, so he is taken off and kept on record, then restored
+  await click('[data-act=pf][data-id=all]');
+  await click('#people-rows tr:has-text("Imran Shaikh")'); await click('.drawer [data-act=rm-open]');
+  if (!(await text('.dialog')).includes('taken off the production rather than deleted')) errs.push('remove dialog does not explain records are kept');
+  await p.fill('#rm-why', 'Show wrapped for camera'); await click('form[data-form=remove] button[type=submit]');
+  if (!(await ev(() => S.members.find(m => user(m.userId)?.name === 'Imran Shaikh')?.removed))) throw new Error('Imran not removed: ' + await text('#rm-err').catch(() => ''));
+  if ((await p.$$eval('#people-rows tr', r => r.map(x => x.textContent))).some(t => t.includes('Imran'))) errs.push('removed person still in the main list');
+  await click('[data-act=pf][data-id=removed]'); await click('#people-rows tr:has-text("Imran Shaikh")'); await click('.drawer [data-act=rm-restore]');
+  if (await ev(() => S.members.find(m => user(m.userId)?.name === 'Imran Shaikh')?.removed)) errs.push('restore failed'); else ok('owner removed Imran (records kept) and restored him');
+  await p.keyboard.press('Escape'); await click('[data-act=pf][data-id=all]');
   await click('.rail [data-id=reports]'); await over('reports');
   const [dl] = await Promise.all([p.waitForEvent('download', {timeout:5000}).catch(() => null), click('[data-act=excel]')]);
   if (!dl) errs.push('no Excel download'); else ok('Excel downloaded: ' + dl.suggestedFilename());

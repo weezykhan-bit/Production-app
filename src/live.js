@@ -71,9 +71,9 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes] = await Promise.all([
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
-    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60})]);
+    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests')]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -90,7 +90,7 @@ async function load(){
     location:p.location || '', city:p.city || 'Mumbai', start:p.start_date || '', invite:p.code, codeAt:ts(p.code_at), codeBy:p.code_by, budget:p.budget || {}}));
   next.members = crew.map(c => ({id:c.id, pid:c.production_id, userId:c.user_id || 'invite:' + c.id, pending:!c.user_id, role:c.role, kind:c.kind,
     dept:c.dept || '', job:c.job || '', rate:c.rate ? +c.rate : null, unit:c.unit, joining:c.joining || '', end:c.end_date || '', tds:c.tds, terms:c.terms,
-    code:c.crew_code, joinedAt:ts(c.joined_at), active:c.active,
+    code:c.crew_code, joinedAt:ts(c.joined_at), active:c.active, removed:!!c.removed_at, removedAt:ts(c.removed_at), removedBy:c.removed_by, removedReason:c.removed_reason || '',
     ag:{status:c.ag_status, text:c.ag_text, sentAt:ts(c.ag_sent_at), signedAt:ts(c.ag_signed_at), signedName:c.ag_signed_name, sig:c.ag_signature, hash:c.ag_hash, counterAt:ts(c.ag_counter_at), counterBy:c.ag_counter_by}}));
   // people invited but not joined yet show under the name they were invited with
   crew.filter(c => !c.user_id).forEach(c => next.users.push({id:'invite:' + c.id, username:'', name:c.invite_name, title:'crew', phone:c.invite_phone || '', email:c.invite_email || '',
@@ -108,6 +108,7 @@ async function load(){
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
   next.log = acts.map(a => ({id:a.id, at:ts(a.at), by:a.by, pid:a.production_id, type:a.type, text:a.text, memberId:a.crew_id, invoiceId:a.invoice_id,
     field:a.field === 'end_date' ? 'end' : a.field, before:a.before, after:a.after, reverted:!!a.reverted_at}));
+  next.removals = rems.map(q => ({id:q.id, pid:q.production_id, memberId:q.crew_id, person:q.person, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, note:q.note || ''}));
   next.notes = notes.map(n => ({id:n.id, pid:n.production_id, at:ts(n.at), kind:n.kind, title:n.title, body:n.body || '', view:n.view, read:!!n.read_at}));
   S = next;
 }
@@ -141,6 +142,8 @@ async function uploadDoc(kind, file){
 const step = async (fn, id, msg) => { const i = S.invoices.find(x => x.id === id); if (await call(fn, {p_id:id}) !== FAIL){ U.drawer = null; done(`${i?.no || 'Invoice'} ${msg}`); } };
 const GOOGLE_G = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.2C12.5 13.7 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.5 5.8c4.4-4 6.8-10 6.8-17.2z"/><path fill="#FBBC05" d="M10.6 28.5c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.2 0-11.5-4.2-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
 Object.assign(ACT, {
+  'rm-withdraw': async el => { if (await call('withdraw_removal', {p_request:el.dataset.id}) !== FAIL) done('Request withdrawn'); },
+  'rm-restore': async el => { if (await call('restore_person', {p_crew:el.dataset.id}) !== FAIL) done('Restored to the production'); },
   'set-pass': () => { U.menu = false; U.modal = {type:'newpass'}; render(); },
   google: async () => { try { await DB.auth.google(); } catch (e) { toast(friendly(e.message)); } },
   'demo-login': () => {}, reset: () => {}, 'reset-empty': () => {},
@@ -217,6 +220,11 @@ Object.assign(FORMS, {
     if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:+v('rv-gst') || 0, desc:v('rv-desc')}}, 'rv-err') === FAIL) return;
     U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted to your HOD`); },
   pay: async () => { if (await call('pay_invoices', {p_production:U.pid, p_ids:[U.modal.id], p_ref:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; done('Marked paid'); },
+  remove: async () => { const r = await call('remove_person', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err'); if (r === FAIL) return;
+    U.modal = null; U.drawer = null; done(r === 'deleted' ? 'Deleted' : 'Removed from the production; their records are kept'); },
+  rmask: async () => { if (await call('request_removal', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err') === FAIL) return; U.modal = null; done('Request sent to the CFO and Commercial Head'); },
+  rmdecide: async () => { const r = await call('decide_removal', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('rm-note')}, 'rm-err'); if (r === FAIL) return;
+    if (r !== 'declined') U.drawer = null; U.modal = null; done(r === 'declined' ? 'Kept; they’ve been told why' : r === 'deleted' ? 'Approved and deleted' : 'Approved; removed from the production'); },
   adjust: async () => { const items = dedRows().map(({type, amount, note}) => ({type, amount, note}));
     const r = await call('set_invoice_adjustments', {p_id:U.modal.id, p_items:items, p_remarks:v('dd-rem')}, 'dd-err'); if (r === FAIL) return; U.modal = null; done(`Saved · will pay ${inr(+r)}`); },
   reject: async () => { if (await call('reject_crew_invoice', {p_id:U.modal.id, p_reason:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; U.drawer = null; done('Invoice rejected; they’ll see the reason'); },
@@ -373,7 +381,7 @@ async function boot(){
   const enter = async u => {
     S.session = u?.id || null;
     if (u){ try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); }
-    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], session:null}; }
+    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], session:null}; }
     render();
   };
   DB.auth.onChange((event, u) => {

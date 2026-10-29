@@ -265,7 +265,10 @@ const can = {
   reports: r => isOwner(r) || isLP(r) || r === 'accounts',
   finance: r => ['cfo','commercial','accounts'].includes(r),
   adjust: r => ['cfo','commercial','hop','lp','accounts'].includes(r),
+  remove: r => isOwner(r),
+  askRemove: r => isLP(r),
 };
+const pendingRemoval = m => (S.removals || []).find(q => q.memberId === m.id && q.status === 'pending');
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
 const profileDone = u => !!(u.legal && PAN_RE.test(u.pan || '') && u.address && u.bank?.holder && ACCT_RE.test(u.bank?.acct || '') && IFSC_RE.test(u.bank?.ifsc || ''));
 const docsDone = u => !!(u.docs?.aadhaar && u.docs?.pan && u.consent && /^\d{4}$/.test(u.aadhaar4 || ''));
@@ -317,9 +320,10 @@ Signed electronically in CrewDesk. The record keeps the typed name, drawn signat
 
 /* ============================================================ to-do engine */
 function todos(pid, uidv){
-  const r = roleIn(pid, uidv), out = [], mems = S.members.filter(m => m.pid === pid), invs = S.invoices.filter(i => i.pid === pid);
+  const r = roleIn(pid, uidv), out = [], mems = S.members.filter(m => m.pid === pid && !m.removed), invs = S.invoices.filter(i => i.pid === pid);
   const mine = memberIn(pid, uidv);
   if (isOwner(r)){
+    (S.removals || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => out.push({t:`Decide: remove ${q.person}?`, s:`Asked by ${user(q.by)?.name || 'the Line Producer'} · ${q.reason}`, act:'open-person', id:q.memberId, b:'Decide'}));
     mems.filter(m => m.ag?.status === 'signed').forEach(m => out.push({t:`Approve ${user(m.userId).name}’s signed agreement`, s:`${m.job} · ${rateText(m)}`, act:'open-person', id:m.id, b:'Review'}));
     invs.filter(i => i.status === 'hod_ok' && i.by !== uidv).forEach(i => out.push({t:`Approve invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept}`, act:'open-invoice', id:i.id, b:'Review'}));
     mems.filter(m => !stageOf(m).d.deal).forEach(m => out.push({t:`Set ${user(m.userId).name}’s deal`, s:'Joined with the invite code; needs rate and joining date', act:'edit-deal', id:m.id, b:'Set deal'}));
@@ -429,7 +433,7 @@ function projectsView(){
     <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
   ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
   ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
-    const mems = S.members.filter(x => x.pid === p.id), act = mems.filter(x => !stageOf(x).next).length, td = todos(p.id, u.id).length, dn = projDone(p);
+    const mems = S.members.filter(x => x.pid === p.id && !x.removed), act = mems.filter(x => !stageOf(x).next).length, td = todos(p.id, u.id).length, dn = projDone(p);
     return `<button class="pcard" data-act="open-project" data-id="${p.id}">
       <div class="spread"><span class="chip ${p.status === 'Shooting' ? 'acc' : 'info'}">${esc(p.status)}</span><span class="chip">${esc(ROLES[m.role].label)}</span></div>
       <div class="stack" style="gap:4px"><h2>${esc(p.name)}</h2><p class="muted small">${esc(p.format)} · ${esc(p.platform)}</p></div>
@@ -479,7 +483,7 @@ function monthStats(pid, ym){
   const byDept = {}, byMember = [];
   invs.forEach(i => { byDept[i.dept] = byDept[i.dept] || {billed:0, unbilled:0}; byDept[i.dept].billed += i.amount; });
   let unbilled = 0;
-  S.members.filter(m => m.pid === pid && m.unit === 'day' && m.rate).forEach(m => {
+  S.members.filter(m => m.pid === pid && !m.removed && m.unit === 'day' && m.rate).forEach(m => {
     const att = shotD.filter(d => d.att.includes(m.userId)).length, mine = invs.filter(i => i.memberId === m.id);
     const billedQty = sum(mine, i => i.qty), ub = Math.max(0, att - billedQty) * m.rate;
     if (att || billedQty) byMember.push({m, att, billedQty, ub, billed:sum(mine, i => i.amount)});
@@ -515,7 +519,7 @@ function codePanel(p){
 }
 
 function dashView(){
-  const p = proj(U.pid), r = myRole(), mems = S.members.filter(m => m.pid === p.id), invs = S.invoices.filter(i => i.pid === p.id), td = todos(p.id, S.session);
+  const p = proj(U.pid), r = myRole(), mems = S.members.filter(m => m.pid === p.id && !m.removed), invs = S.invoices.filter(i => i.pid === p.id), td = todos(p.id, S.session);
   const onb = mems.filter(m => !stageOf(m).next).length;
   const pend = invs.filter(i => ['submitted','hod_ok'].includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
   const sum = (a, k = 'payable') => a.reduce((s, i) => s + i[k], 0);
@@ -608,9 +612,10 @@ function agreementBlock(m, canSign){
 /* ---------- people */
 const kindTabs = (act, cur, list) => `<div class="seg" role="group" aria-label="Artists, crew or vendors">${[['all','Everyone'], ...KINDS].map(([k, l]) => `<button data-act="${act}" data-id="${k}" aria-pressed="${cur === k}">${l}<span class="n">${k === 'all' ? list.length : list.filter(m => m.kind === k).length}</span></button>`).join('')}</div>`;
 function peopleView(){
-  const r = myRole(), everyone = S.members.filter(m => m.pid === U.pid), mems = everyone.filter(m => U.pk === 'all' || m.kind === U.pk);
-  const groups = [['all','All'],['deal','Needs deal'],['profile','Profile pending'],['docs','Documents pending'],['sent','Ready for agreement'],['signed','Waiting for signature'],['active','Awaiting approval'],['done','Onboarded']];
-  const cnt = k => k === 'all' ? mems.length : mems.filter(m => (stageOf(m).next || 'done') === k).length;
+  const r = myRole(), all = S.members.filter(m => m.pid === U.pid && (U.pk === 'all' || m.kind === U.pk)), everyone = S.members.filter(m => m.pid === U.pid && !m.removed), mems = everyone.filter(m => U.pk === 'all' || m.kind === U.pk);
+  const groups = [['all','All'],['asked','Removal asked'],['deal','Needs deal'],['profile','Profile pending'],['docs','Documents pending'],['sent','Ready for agreement'],['signed','Waiting for signature'],['active','Awaiting approval'],['done','Onboarded']];
+  const cnt = k => k === 'all' ? mems.length : k === 'removed' ? all.filter(m => m.removed).length : k === 'asked' ? mems.filter(pendingRemoval).length : mems.filter(m => (stageOf(m).next || 'done') === k).length;
+  groups.push(['removed','Removed']);
   const deptOpts = [...new Set(mems.map(m => m.dept).filter(Boolean))].sort();
   const what = {all:'Artists, crew and vendors', cast:'Artists', crew:'Crew', vendor:'Vendors'}[U.pk];
   return `${projHead('People', `<p class="muted">${what} on this show, and where each one is in onboarding.</p>`)}
@@ -623,18 +628,19 @@ function peopleView(){
 }
 function peopleRows(){
   const q = U.pq.trim().toLowerCase();
-  const rows = S.members.filter(m => m.pid === U.pid && (U.pk === 'all' || m.kind === U.pk)).filter(m => U.pf === 'all' || (stageOf(m).next || 'done') === U.pf).filter(m => !U.pd || m.dept === U.pd)
+  const rows = S.members.filter(m => m.pid === U.pid && (U.pk === 'all' || m.kind === U.pk) && !!m.removed === (U.pf === 'removed'))
+    .filter(m => ['all','removed'].includes(U.pf) || (U.pf === 'asked' ? pendingRemoval(m) : (stageOf(m).next || 'done') === U.pf)).filter(m => !U.pd || m.dept === U.pd)
     .filter(m => !q || [user(m.userId).name, m.job, m.dept].join(' ').toLowerCase().includes(q));
   return rows.map(m => { const u = user(m.userId); return `<tr class="click" data-act="open-person" data-id="${m.id}" tabindex="0">
     <td><span class="row" style="gap:10px;flex-wrap:nowrap">${av(u)}<span><b>${esc(u.name)}</b><span class="sub">${esc(m.job || 'Role not set')}</span></span></span></td>
     <td>${esc(m.dept || '—')}${U.pk === 'all' ? `<span class="sub">${KIND_ONE[m.kind] || ''}</span>` : ''}</td><td class="r num">${m.rate ? `${inr(m.rate)}<span class="sub">${UNITS[m.unit]}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmtD(m.joining)}</td>
-    <td>${dots(m)}</td><td>${stageChip(m)}</td><td><span class="chip ${isOwner(m.role) ? 'acc' : ''}">${ROLES[m.role].label}</span></td></tr>`; }).join('') || `<tr><td colspan="7"><div class="empty">No one matches these filters.</div></td></tr>`;
+    <td>${dots(m)}</td><td>${m.removed ? '<span class="chip bad">Removed</span>' : stageChip(m)}${pendingRemoval(m) ? ' <span class="chip bad">Removal asked</span>' : ''}</td><td><span class="chip ${isOwner(m.role) ? 'acc' : ''}">${ROLES[m.role].label}</span></td></tr>`; }).join('') || `<tr><td colspan="7"><div class="empty">No one matches these filters.</div></td></tr>`;
 }
 
 /* ---------- agreements */
 const agState = m => { const s = m.ag?.status || 'none'; return s !== 'none' ? s : (stageOf(m).next === 'sent' ? 'ready' : 'wait'); };
 function agreementsView(){
-  const r = myRole(), everyone = S.members.filter(m => m.pid === U.pid && !isOwner(m.role)), ofKind = everyone.filter(m => U.agk === 'all' || m.kind === U.agk);
+  const r = myRole(), everyone = S.members.filter(m => m.pid === U.pid && !m.removed && !isOwner(m.role)), ofKind = everyone.filter(m => U.agk === 'all' || m.kind === U.agk);
   const agGroups = [['all','All'],['wait','Not ready'],['ready','Ready to send'],['sent','Waiting for signature'],['signed','Signed · needs approval'],['countersigned','Approved']];
   const cnt = k => k === 'all' ? ofKind.length : ofKind.filter(m => agState(m) === k).length;
   const st = m => ({wait:[NEXT_LABEL[stageOf(m).next] || 'Not ready', ''], ready:['Ready to send','info'], sent:['Sent · waiting for signature','warn'], signed:['Signed · needs approval','gold'], countersigned:['Approved','good']}[agState(m)]);
@@ -949,6 +955,19 @@ function renderLayer(){
   if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog">${modalBody()}</div></div>`;
   L.innerHTML = html;
 }
+function removalPanel(m){
+  const r = myRole(), q = pendingRemoval(m), by = id => esc(user(id)?.name || 'Someone');
+  if (m.synthetic || isOwner(m.role)) return '';
+  if (m.removed) return `<section class="panel stack rm"><h3>Removed from this production</h3><p>${fmtT(m.removedAt)} by ${by(m.removedBy)}: ${esc(m.removedReason || '')}</p><p class="small muted">They can’t sign in to this production or rejoin with the code. Their invoices, payments and agreement stay on record.</p>${can.remove(r) ? `<div class="row"><button class="btn" data-act="rm-restore" data-id="${m.id}">Restore to production</button></div>` : ''}</section>`;
+  if (q) return `<section class="panel stack rm"><h3>Removal asked</h3><p><b>${by(q.by)}</b> asked ${fmtT(q.at)}: ${esc(q.reason)}</p>
+    <div class="row">${can.remove(r) ? `<button class="btn danger" data-act="rm-decide" data-id="${q.id}" data-yes="1">Approve removal</button><button class="btn" data-act="rm-decide" data-id="${q.id}">Keep them</button>` : '<span class="small muted">Waiting for the CFO or Commercial Head.</span>'}${q.by === S.session ? `<button class="btn ghost" data-act="rm-withdraw" data-id="${q.id}">Withdraw</button>` : ''}</div></section>`;
+  if (m.userId === S.session) return '';
+  if (can.remove(r)) return `<div class="row"><button class="btn ghost danger" data-act="rm-open" data-id="${m.id}">Remove from production</button></div>`;
+  if (can.askRemove(r)) return `<div class="row"><button class="btn ghost danger" data-act="rm-ask" data-id="${m.id}">Ask to remove</button></div>`;
+  return '';
+}
+const rmHistory = m => ['signed','countersigned'].includes(m.ag?.status) || S.invoices.some(i => i.memberId === m.id) || S.days.some(d => d.pid === m.pid && d.att.includes(m.userId));
+const rmOpen = m => S.invoices.some(i => i.memberId === m.id && ['submitted','hod_ok','approved'].includes(i.status));
 function personDrawer(m){
   if (!m) return '';
   const u = user(m.userId), r = myRole(), s = stageOf(m), a = m.ag || {}, kyc = can.seeKyc(r) || u.id === S.session;
@@ -962,8 +981,9 @@ function personDrawer(m){
     ${can.editDeal(r) ? `<button class="btn" data-act="edit-deal" data-id="${m.id}">${s.d.deal ? 'Edit deal' : 'Set deal'}</button>` : ''}
     ${s.next === 'sent' && can.sendAgreement(r) ? `<button class="btn primary" data-act="send-ag" data-id="${m.id}">Send agreement</button>` : ''}
     ${a.status === 'signed' && can.countersign(r) ? `<button class="btn primary" data-act="countersign" data-id="${m.id}">Approve agreement</button>` : ''}
-    ${['profile','docs','signed'].includes(s.next) ? `<button class="btn" data-act="nudge" data-id="${m.id}">Send reminder</button>` : ''}
+    ${['profile','docs','signed'].includes(s.next) && !m.removed ? `<button class="btn" data-act="nudge" data-id="${m.id}">Send reminder</button>` : ''}
   </div>
+  ${removalPanel(m)}
   <section class="panel"><h3>Deal</h3><dl class="dl"><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label || '—')}</dd><dt>Payment terms</dt><dd>${m.terms} days after approval</dd><dt>App access</dt><dd>${ROLES[m.role].label}</dd></dl></section>
   <section class="panel"><h3>Profile & bank</h3>${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
     <dt>PAN</dt><dd class="mono">${esc(u.pan || '—')}</dd><dt>GSTIN</dt><dd class="mono">${esc(u.gstin || 'Not registered')}</dd><dt>Aadhaar</dt><dd class="mono">${u.aadhaar4 ? 'XXXX XXXX ' + esc(u.aadhaar4) : '—'}</dd><dt>Bank</dt><dd>${esc(bankLine(u))}</dd><dt>Emergency</dt><dd>${esc(u.emergency || '—')}</dd></dl>`
@@ -1024,6 +1044,23 @@ function modalBody(){
       <div class="grid2"><label class="f">GST<select id="rv-gst" ${u.gstin ? '' : 'disabled'}>${opt([['0', 'No GST'], ['5', '5%'], ['12', '12%'], ['18', '18%']], u.gstin ? '18' : '0')}</select>${u.gstin ? '' : '<span class="hint small">Add a GSTIN to your profile to charge GST</span>'}</label><label class="f">Description<input type="text" id="rv-desc" placeholder="${esc(m.job)}, shoot days"></label></div>
       <div class="calc" id="rv-calc"></div>
       <p class="err" id="rv-err"></p><div class="row"><button class="btn primary" type="submit">Submit invoice</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'remove' || M.type === 'rmask'){
+    const m = member(M.id), u = user(m.userId), ask = M.type === 'rmask';
+    const what = rmOpen(m) ? '<p class="banner">They have an invoice in approval or waiting for payment. Pay or reject it before they can be removed.</p>'
+      : rmHistory(m) ? `<p class="small muted">${esc(u.name)} has invoices, check-ins or a signed agreement, so they’ll be taken off the production rather than deleted: they lose access and drop off the lists, and their records stay. An owner can restore them.</p>`
+      : `<p class="small muted">${esc(u.name)} has no invoices, check-ins or signed agreement, so they’ll be deleted outright.</p>`;
+    return `${head(ask ? `Ask to remove ${esc(u.name)}` : `Remove ${esc(u.name)}`, `${esc(m.job || '')}${m.dept ? ' · ' + esc(m.dept) : ''}`)}
+    <form class="stack" data-form="${M.type}">${ask ? '<p class="small muted">The CFO or Commercial Head decides. You’ll be told either way.</p>' : ''}${what}
+      <label class="f">Reason <span class="hint">${ask ? 'the CFO and Commercial Head see this' : 'kept in the activity log'}</span><textarea id="rm-why" rows="3" maxlength="500" required></textarea></label>
+      <p class="err" id="rm-err"></p><div class="row"><button class="btn ${ask ? 'primary' : 'danger'}" type="submit">${ask ? 'Send request' : 'Remove'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'rmdecide'){
+    const q = (S.removals || []).find(x => x.id === M.id), m = member(q.memberId);
+    return `${head(M.yes ? `Remove ${esc(q.person)}?` : `Keep ${esc(q.person)}`, `Asked by ${esc(user(q.by)?.name || '')}: ${esc(q.reason)}`)}
+    <form class="stack" data-form="rmdecide">${M.yes && m ? (rmOpen(m) ? '<p class="banner">They have an invoice in approval or waiting for payment. Pay or reject it first.</p>' : `<p class="small muted">${rmHistory(m) ? 'They have history, so they’ll be taken off the production and their records kept.' : 'They have no history, so they’ll be deleted outright.'}</p>`) : ''}
+      <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Why keep them <span class="hint">the person who asked sees this</span>'}<textarea id="rm-note" rows="2" maxlength="500"></textarea></label>
+      <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'adjust'){
     const i = S.invoices.find(x => x.id === M.id), have = i.deductions || [], rows = [...have, {}, {}, {}].slice(0, Math.max(3, have.length + 1));
@@ -1185,6 +1222,11 @@ const ACT = {
   agk: el => { U.agk = el.dataset.id; U.agf = 'all'; render(); },
   agf: el => { U.agf = el.dataset.id; render(); },
   adjust: el => { U.modal = {type:'adjust', id:el.dataset.id}; renderLayer(); adjCalc(); },
+  'rm-open': el => { U.modal = {type:'remove', id:el.dataset.id}; renderLayer(); },
+  'rm-ask': el => { U.modal = {type:'rmask', id:el.dataset.id}; renderLayer(); },
+  'rm-decide': el => { U.modal = {type:'rmdecide', id:el.dataset.id, yes:!!el.dataset.yes}; renderLayer(); },
+  'rm-withdraw': el => { const q = S.removals.find(x => x.id === el.dataset.id); q.status = 'withdrawn'; log(U.pid, 'onboard', `Withdrew the request to remove ${q.person}`); done('Request withdrawn'); },
+  'rm-restore': el => { const m = member(el.dataset.id); Object.assign(m, {removed:false, removedAt:null, removedBy:null, removedReason:'', active:true}); log(U.pid, 'onboard', `Restored ${user(m.userId).name} to the production`, {memberId:m.id}); done(`${user(m.userId).name} restored`); },
   invf: el => { U.invf = el.dataset.id; render(); },
   logf: el => { U.logf = el.dataset.id; render(); },
   raise: () => { U.modal = {type:'raise'}; U.qtyTouched = false; renderLayer(); calcInv(); },
@@ -1247,6 +1289,11 @@ function calcInv(){
     a.innerHTML = qty > n ? `<span class="flag">Gate check-ins show ${n} day${n === 1 ? '' : 's'} for these dates.</span> Your HOD will see the difference.` : `<span style="color:var(--good)">✓ Matches gate check-ins: ${n} day${n === 1 ? '' : 's'}.</span>`; }
 }
 
+function demoRemove(m, why){
+  (S.removals || []).filter(q => q.memberId === m.id && q.status === 'pending').forEach(q => q.status = 'approved');
+  if (rmHistory(m)){ Object.assign(m, {removed:true, removedAt:Date.now(), removedBy:S.session, removedReason:why, active:false}); log(m.pid, 'onboard', `Removed ${user(m.userId).name} from the production: ${why}`, {memberId:m.id}); }
+  else { S.members = S.members.filter(x => x.id !== m.id); log(m.pid, 'onboard', `Deleted ${user(m.userId).name} (${m.job || 'no role'}): ${why}`); }
+}
 const FORMS = {
   login: () => { const id = val('li-user').toLowerCase(), pw = $('#li-pass').value, u = S.users.find(x => x.username === id || x.email.toLowerCase() === id);
     if (!u || u.password !== pw) return err('li-err', 'That username and password don’t match. Demo accounts use the password demo123.');
@@ -1332,6 +1379,17 @@ const FORMS = {
     const t = items.reduce((a, d) => a + d.amount, 0); if (t > base) return err('dd-err', `Deductions can’t be more than the amount payable (${inr(base)}).`);
     Object.assign(i, {deductions:items, deduction:t, remarks:rem, payable:base - t});
     log(U.pid, 'invoice', `Updated ${i.no} (${user(i.by).name}): deductions ${inr(t)}${rem ? `, remark “${rem}”` : ''}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} saved · pays ${inr(base - t)}`); },
+  remove: () => { const m = member(U.modal.id), why = val('rm-why'), name = user(m.userId).name;
+    if (why.length < 4) return err('rm-err', 'Say why they’re being removed.');
+    if (rmOpen(m)) return err('rm-err', 'They have an invoice in approval or waiting for payment. Pay or reject it first.');
+    demoRemove(m, why); U.modal = null; U.drawer = null; done(`${name} removed`); },
+  rmask: () => { const m = member(U.modal.id), why = val('rm-why'); if (why.length < 4) return err('rm-err', 'Say why, so the CFO or Commercial Head can decide.');
+    (S.removals ||= []).push({id:uid('q'), pid:m.pid, memberId:m.id, person:user(m.userId).name, by:S.session, reason:why, at:Date.now(), status:'pending'});
+    log(U.pid, 'onboard', `Asked to remove ${user(m.userId).name}: ${why}`, {memberId:m.id}); U.modal = null; done('Request sent to the CFO and Commercial Head'); },
+  rmdecide: () => { const q = S.removals.find(x => x.id === U.modal.id), m = member(q.memberId), note = val('rm-note');
+    if (U.modal.yes){ if (m && rmOpen(m)) return err('rm-err', 'They have an invoice in approval or waiting for payment. Pay or reject it first.'); if (m) demoRemove(m, q.reason + (note ? ' · ' + note : '')); q.status = 'approved'; U.drawer = null; }
+    else { if (note.length < 4) return err('rm-err', 'Say why you’re keeping them, so the person who asked knows.'); q.status = 'declined'; q.note = note; log(U.pid, 'onboard', `Kept ${q.person} on the production: ${note}`); }
+    U.modal = null; done(`${q.person} ${q.status === 'approved' ? 'removed' : 'kept on the production'}`); },
   reject: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
     if (v.length < 4) return err('md-err', 'Say why, so they can fix it and resubmit.');
     i.status = 'rejected'; i.reason = v; log(U.pid, 'invoice', `Rejected ${i.no}: ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} rejected; ${user(i.by).name} will see the reason`); },
