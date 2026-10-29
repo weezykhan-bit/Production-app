@@ -84,6 +84,7 @@ const I = {
   grid:'<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
   cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', bank:'<path d="M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 21h18"/>',
   chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', building:'<path d="M4 21V5l8-3v19M12 8h8v13M8 8v.01M8 12v.01M8 16v.01M16 12v.01M16 16v.01M2 21h20"/>',
+  play:'<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
   down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
 };
 const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
@@ -267,7 +268,7 @@ function topBar(){
     ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
     <span class="grow"></span>
     <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
-    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="set-pass">Set or change password</button><button data-act="logout">Sign out</button></div>` : ''}
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="help">How to use CrewDesk</button><button data-act="set-pass">Set or change password</button><button data-act="logout">Sign out</button></div>` : ''}
   </header>`;
 }
 
@@ -287,7 +288,7 @@ function projectsView(){
   if (!S.company && can.company(u)) return `<div class="head"><div class="t"><p class="eyebrow">Step 1 of 2 · one-time setup</p><h1>Your company details</h1>
     <p class="muted" style="max-width:62ch">Entered once by the CFO or Commercial Head. Every production, agreement, invoice and Tally export uses them, so nobody types them again.</p></div></div>
     <section class="panel">${companyForm()}</section>`;
-  return `<div class="head"><div class="t"><p class="eyebrow">Signed in as ${esc(ROLES[u.title]?.label || 'Crew')}</p><h1>Your productions</h1></div>
+  return `<div class="head"><div class="t"><p class="eyebrow">${mine.length ? 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0]) : 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '')}</p><h1>${mine.length ? 'Your productions' : 'Let’s get you on set'}</h1></div>
     <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
   ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
   ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
@@ -298,17 +299,24 @@ function projectsView(){
       <div class="stack" style="gap:6px"><div class="spread small"><span class="mono">Ep ${dn} / ${p.planned}</span><span class="muted mono">Next: ${esc(projBlock(p))}</span></div>
       <div class="meter"><span style="width:${Math.min(100, Math.round(dn / Math.max(1, p.planned) * 100))}%"></span></div></div>
       <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
-    </button>`; }).join('')}</div>` : `<div class="empty">You aren’t on any production yet. Enter the production code your Line Producer or Head of Production sent you.</div>`}
-  <section class="panel" style="max-width:560px"><h3>Join a production</h3>
-    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>${me().phone ? '' : `<label class="f" style="flex:1 1 170px">Your mobile <span class="hint">finds your invite</span><input type="tel" id="join-phone" autocomplete="tel" placeholder="98200 00000"></label>`}
-    <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
-    <p class="err" id="join-err"></p></section>`;
+    </button>`; }).join('')}</div>` : ''}
+  <section class="panel joinp stack">
+    <div class="stack" style="gap:4px"><h2>${mine.length ? 'Join another production' : 'Join your production'}</h2>
+      <p class="muted">${mine.length ? 'Got a code for a new show? Enter it here.' : 'Enter the production code your Line Producer or Head of Production sent you on WhatsApp.'}</p></div>
+    <form class="stack" data-form="join">
+      <label class="f">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" autocapitalize="characters" class="mono code-in"></label>
+      ${me().phone ? '' : `<label class="f">Your mobile number <span class="hint">the one your Line Producer has, so we find your invite</span><input type="tel" id="join-phone" autocomplete="tel" inputmode="tel" placeholder="98200 00000"></label>`}
+      <label class="f">I’m joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label>
+      <p class="err" id="join-err"></p><button class="btn primary big" type="submit">Join production</button></form>
+    ${mine.length ? '' : helpLink()}</section>`;
 }
 function projHead(title, sub = ''){
   const p = proj(U.pid);
-  return `<div class="head"><div class="t"><p class="eyebrow">${esc(p.name)}</p><h1>${title}</h1>${sub}</div>
-    <div class="slate" aria-label="Production status"><span><b>FORMAT</b>${esc(p.format.replace('Long-format fiction', 'LFF'))}</span><span><b>EP</b>${projDone(p)}/${p.planned}</span><span><b>NEXT</b>${esc(projBlock(p))}</span></div></div>`;
+  const slate = isStaff(myRole()) ? `<div class="slate" aria-label="Production status"><span><b>FORMAT</b>${esc(p.format.replace('Long-format fiction', 'LFF'))}</span><span><b>EP</b>${projDone(p)}/${p.planned}</span><span><b>NEXT</b>${esc(projBlock(p))}</span></div>` : '';
+  return `<div class="head"><div class="t"><p class="eyebrow">${esc(p.name)}</p><h1>${title}</h1>${sub}</div>${slate}</div>`;
 }
+const HELP_URL = '/help/';
+const helpLink = (t = 'Watch the 2-minute setup video') => `<a class="helplink" href="${HELP_URL}" target="_blank" rel="noopener">${icon('play', 16)}${t}</a>`;
 const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '—';
 function genCode(name){ const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)]; return name.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase().padEnd(4, 'X') + s; }
 const epsLabel = d => !d.epFrom ? 'No episodes set' : d.epTo > d.epFrom ? `Ep ${d.epFrom}–${d.epTo}` : `Ep ${d.epFrom}`;
@@ -418,7 +426,7 @@ function mySetupView(){
   const signNow = a.status === 'sent' && s.d.profile && s.d.docs;
   return `${projHead(s.next ? 'Finish your onboarding' : 'You’re onboarded', `<p class="muted">${esc(m.job || 'Role not set yet')}${m.dept ? ' · ' + esc(m.dept) : ''}</p>`)}
   <section class="panel stack"><div class="stepper">${STAGES.map(([k, l]) => `<div class="${s.d[k] ? 'on' : (s.next === k ? 'now' : '')}">${l}</div>`).join('')}</div>
-    ${s.next ? `<p><b>Next:</b> ${esc(todos(U.pid, S.session)[0]?.t || '')}</p>` : ''}</section>
+    ${s.next ? `<p><b>Next:</b> ${esc(todos(U.pid, S.session)[0]?.t || '')}</p>${helpLink('Not sure how? Watch the 2-minute video')}` : ''}</section>
   ${!s.next ? `<div class="idcard"><span class="ph">${u.photo ? `<img src="${u.photo}" alt="">` : initials(u.name)}</span><span class="eyebrow" style="color:inherit;opacity:.8">${esc(proj(U.pid).name)} · Crew ID</span><b style="font:700 20px/1.1 var(--f-display)">${esc(u.name)}</b><span>${esc(m.job)} · ${esc(m.dept)}</span><span class="code">${esc(m.code)}</span><span class="small" style="opacity:.8">Show this code at the gate for check-in.</span></div>` : ''}
   ${sec('deal', 1, 'Your deal', s.d.deal, s.d.deal ? `<dl class="dl"><dt>Role</dt><dd>${esc(m.job)} · ${esc(m.dept)}</dd><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label)}</dd><dt>Payment</dt><dd>Within ${m.terms} days of approval</dd></dl><p class="small muted">Only the CFO or Commercial Head can change your deal. Every change is logged.</p>` : '<p class="muted">The production office is setting your rate and joining date. You’ll see it here.</p>', false)}
   ${sec('profile', 2, 'Profile & bank details', s.d.profile, profileForm(u), s.next === 'profile')}
@@ -531,7 +539,7 @@ function invoicesView(){
   <div class="spread"><div class="filters">${tabs.map(([k, l]) => `<button class="fchip" data-act="invf" data-id="${k}" aria-pressed="${U.invf === k}">${l}<span class="n">${invs.filter(i => k === 'all' || (k === 'mine' ? mineToAct(i) : i.status === k)).length}</span></button>`).join('')}</div>
     ${m && m.rate ? `<button class="btn primary" data-act="raise" ${canRaise ? '' : 'disabled title="Finish onboarding first"'}>${icon('plus', 16)}Raise invoice</button>` : ''}</div>
   ${!staff && !canRaise ? '<p class="banner">You can raise invoices once your agreement is approved.</p>' : ''}
-  <div class="tablewrap"><table class="wide"><thead><tr><th>Invoice</th>${staff ? '<th>From</th>' : ''}<th>Period</th><th class="r">Fee</th><th class="r">GST</th><th class="r">TDS</th><th class="r">Deductions</th><th class="r">Payable</th><th>Remarks</th><th>Status</th><th class="r">Action</th></tr></thead><tbody>
+  <div class="tablewrap ${staff ? '' : 'inv-table'}"><table class="wide"><thead><tr><th>Invoice</th>${staff ? '<th>From</th>' : ''}<th>Period</th><th class="r">Fee</th><th class="r">GST</th><th class="r">TDS</th><th class="r">Deductions</th><th class="r">Payable</th><th>Remarks</th><th>Status</th><th class="r">Action</th></tr></thead><tbody>
   ${shown.map(i => { const [l, c] = INV[i.status], acts = invActions(i);
     return `<tr class="click" data-act="open-invoice" data-id="${i.id}"><td><b class="mono">${esc(i.no)}</b><span class="sub">${fmtT(i.at)}</span></td>${staff ? `<td>${esc(user(i.by).name)}<span class="sub">${esc(i.dept)}</span></td>` : ''}
     <td class="small">${fmtD(i.from)} – ${fmtD(i.to)}<span class="sub">${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}${overClaim(i) ? ' <span class="flag">⚠ check days</span>' : ''}</span></td><td class="r num">${inr(i.amount)}</td><td class="r num">${i.gst ? inr(i.gst) : '—'}</td><td class="r num">${i.tds ? '−' + inr(i.tds) : '—'}</td>
@@ -539,7 +547,11 @@ function invoicesView(){
     <td class="r num"><b>${inr(i.payable)}</b></td><td class="small remark" title="${esc(i.remarks || '')}">${i.remarks ? esc(i.remarks) : '<span class="muted">—</span>'}</td>
     <td><span class="chip ${c}">${l}</span>${i.utr ? `<span class="sub mono">${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="sub">${esc(i.reason)}</span>` : ''}</td>
     <td class="r" data-stop="1"><span class="row" style="justify-content:flex-end;flex-wrap:nowrap">${acts.map(([a, l, cls]) => `<button class="btn sm ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</span></td></tr>`; }).join('') || `<tr><td colspan="${staff ? 11 : 10}"><div class="empty">${staff ? 'No invoices here.' : 'You haven’t raised an invoice yet.'}</div></td></tr>`}
-  </tbody></table></div>`;
+  </tbody></table></div>
+  ${staff ? '' : `<div class="inv-cards">${shown.map(i => { const [l, c] = INV[i.status];
+    return `<button class="invcard" data-act="open-invoice" data-id="${i.id}"><span class="spread"><b class="mono">${esc(i.no)}</b><span class="chip ${c}">${l}</span></span>
+      <span class="spread"><span class="small muted">${fmtD(i.from)} – ${fmtD(i.to)} · ${i.qty} × ${inr(i.rate)}</span><b class="num">${inr(i.payable)}</b></span>
+      ${i.deduction ? `<span class="small">Deductions −${inr(i.deduction)}: ${esc((i.deductions || []).map(d => d.label).join(', '))}</span>` : ''}${i.remarks ? `<span class="small muted">“${esc(i.remarks)}”</span>` : ''}${i.utr ? `<span class="small mono muted">Paid · ${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="small" style="color:var(--bad)">${esc(i.reason)}</span>` : ''}</button>`; }).join('') || '<div class="empty">You haven’t raised an invoice yet.</div>'}</div>`}`;
 }
 const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && ['submitted','hod_ok','approved'].includes(i.status) && !i.tp;
 function invActions(i){
@@ -1002,7 +1014,7 @@ const QUICK = ['What should I do next?','How do crew join a production?','Which 
 function renderChat(){
   const box = $('#chatbox');
   if (!me()){ box.innerHTML = ''; return; }
-  if (!U.chat){ box.innerHTML = `<button class="fab" data-act="chat">${icon('chat')}Guide</button>`; return; }
+  if (!U.chat){ box.innerHTML = `<button class="fab" data-act="chat" aria-label="Guide">${icon('chat')}<span>Guide</span></button>`; return; }
   if (!U.chatLog.length) U.chatLog.push({from:'bot', html:`Hi ${esc(me().name.split(' ')[0])}. I can walk you through onboarding, documents, agreements, invoices and payments. Ask in your own words or tap a question.`});
   box.innerHTML = `<section class="chat" aria-label="Guide"><header><div><b>CrewDesk guide</b><p class="small muted">Scripted demo · answers from the app’s own rules</p></div><button class="btn ghost sm" data-act="chat" aria-label="Close guide">${icon('x', 16)}</button></header>
     <div class="msgs" id="msgs">${U.chatLog.map(m => `<div class="msg ${m.from}">${m.html}</div>`).join('')}</div>
@@ -1044,6 +1056,7 @@ function answer(q){
   if (has('undo','revert','history','back track','backtrack','log','audit','changed')) return 'Every action is recorded in the <b>Activity log</b>: who did it, when, and the old and new values. The CFO or Commercial Head can undo a deal change (rate, dates, TDS) with one tap, and the undo is logged too.';
   if (has('role','access','cfo','commercial','owner','permission')) return 'Owner access belongs to the <b>CFO</b> and the <b>Commercial Head</b>: they set deals, approve agreements and give final invoice approval. The Line Producer onboards people and sends agreements. HODs approve their own department’s invoices. See <b>Roles & access</b> for the full table.';
   if (has('project','production','show','serial','episode','create')) return isOwner(me().title) ? 'Tap <b>New production</b> on Your productions. Pick the format (long-format fiction daily or weekly, web series, micro-drama and others), the episodes planned and the paying company. You become its owner and get an invite code.' : 'Productions are created by the CFO or Commercial Head. To join one, enter its invite code on <b>Your productions</b>.';
+  if (has('video','tutorial','help page','how to use','how do i start','new here')) return `There’s a 2-minute video and a short guide: <a href="${HELP_URL}" target="_blank" rel="noopener">open the help page</a>. It shows signing in with Google, joining with the code, filling your details, signing the agreement and raising an invoice.`;
   if (has('hi','hello','hey','namaste')) return 'Hello! Ask me about onboarding, documents, agreements, invoices, TDS or payments.';
   return 'I don’t have an answer for that yet. I can help with: onboarding someone, Aadhaar and PAN uploads, agreements, invoices and approvals, TDS and GST, payments, privacy, roles, and undoing changes.';
 }
@@ -1076,6 +1089,7 @@ const ACT = {
   close: () => { U.drawer = null; renderLayer(); },
   'close-modal': () => { U.modal = null; renderLayer(); },
   pf: el => { U.pf = el.dataset.id; render(); },
+  help: () => { U.menu = false; render(); window.open(HELP_URL, '_blank', 'noopener'); },
   pk: el => { U.pk = el.dataset.id; U.pf = 'all'; render(); },
   agk: el => { U.agk = el.dataset.id; U.agf = 'all'; render(); },
   agf: el => { U.agf = el.dataset.id; render(); },
@@ -1656,7 +1670,7 @@ function loginView(){
     <p class="small" style="opacity:.85;max-width:44ch">Your details are private. Bank, PAN and Aadhaar are seen only by you, the CFO, the Commercial Head and Finance on your production.</p>
   </section>
   <section class="login-form">${['in','signup'].includes(mode) ? tabs : ''}${main}
-    <p class="small muted">Want to look around first? <a href="/central/" target="_blank" rel="noopener">Open the demo with sample data</a>.</p></section></div>`;
+    <div class="helpbox">${helpLink('New here? Watch the 2-minute setup video')}<p class="small muted">Or <a href="/central/" target="_blank" rel="noopener">look around the demo</a> with sample data.</p></div></section></div>`;
 }
 // keep what people type on the sign-in screens through redraws and errors (in memory only; cleared once they're in)
 const DRAFT = {};

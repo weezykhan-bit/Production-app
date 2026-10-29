@@ -291,7 +291,7 @@ function loginView(){
     <p class="small" style="opacity:.85;max-width:44ch">Your details are private. Bank, PAN and Aadhaar are seen only by you, the CFO, the Commercial Head and Finance on your production.</p>
   </section>
   <section class="login-form">${['in','signup'].includes(mode) ? tabs : ''}${main}
-    <p class="small muted">Want to look around first? <a href="/central/" target="_blank" rel="noopener">Open the demo with sample data</a>.</p></section></div>`;
+    <div class="helpbox">${helpLink('New here? Watch the 2-minute setup video')}<p class="small muted">Or <a href="/central/" target="_blank" rel="noopener">look around the demo</a> with sample data.</p></div></section></div>`;
 }
 // keep what people type on the sign-in screens through redraws and errors (in memory only; cleared once they're in)
 const DRAFT = {};
