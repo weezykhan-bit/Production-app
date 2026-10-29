@@ -70,3 +70,22 @@ The app is mobile-first and installable to a phone's home screen. Without config
 - **Payments:** the app produces a bank bulk-payment CSV and records the bank reference; it does not move money. Column order differs between banks, so adjust it to yours if needed. Direct payouts need a payment provider such as RazorpayX or Cashfree.
 - **Tally:** the export is an XML import file (ledger masters, purchase vouchers, payment vouchers). The expense, GST, TDS and bank ledgers named in production settings must already exist in Tally. Test the first import on a copy of your company data.
 - **Not built yet:** notifications (email or WhatsApp on a new contract, approval or call sheet), file attachments (invoice PDFs, receipts), a crew marketplace, and a native app-store app.
+
+---
+
+## CrewDesk Central (the live app, from October 2026)
+
+The site root is now **CrewDesk Central**: company set up once, production codes, crew onboarding with photo and KYC uploads, e-signed agreements, the shoot schedule with gate check-in, invoices, payment runs, TDS/GST registers, Tally files and Excel reports. The demo with sample data stays at `/central/`. The first version of the app is kept in `legacy/` for reference.
+
+| Part | What it is |
+|---|---|
+| `central/` | The screens, with sample data (the public demo) |
+| `src/live.js` | The live data layer: Supabase sign-in, loading what each person may see, saving through checked database functions, private uploads |
+| `tools/build-live.py` | Builds `index.html` and `app.js` at the root from the two above. Edit those, then run `python3 tools/build-live.py` |
+| `supabase/migrations/20261030*` | Tables, rules, private document storage and hardening |
+
+**Security.** Every table has row-level security and no direct-write rules; every change goes through a database function that checks the caller's role. PAN, Aadhaar, address and bank details are visible only to the person, the CFO/Commercial Head and Finance on their production. Photos and documents sit in a private storage bucket, readable through short-lived signed links under the same rules. Wrong production codes are counted and lock joining after ten an hour. Every action is written to the activity log; deal changes can be undone, and the undo is logged too. The first owner is the Commercial Head's account, so nobody else can claim the company.
+
+**Tests.**
+- Database: `supabase/tests/central_test.sql`, 96 checks run as each role on Postgres 16 (see the file header for the run order).
+- End to end: `tests/live-e2e.mjs` runs the real screens in Chromium against the real schema in PGlite: company setup, production, invites, sign-up and joining by code, profile and document uploads, agreement send/sign/approve, gate check-in, invoice from check-ins, approvals, payment run, Tally batch, Excel.

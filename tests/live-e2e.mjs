@@ -1,0 +1,212 @@
+// End-to-end test of the live app: the real screens in Chromium, the real database schema and rules
+// running in PGlite (Postgres compiled to WebAssembly) in place of Supabase.
+// Usage: PGLITE=<path to @electric-sql/pglite dist/index.js> XLSX=<path to xlsx.full.min.js> node tests/live-e2e.mjs
+import { createRequire } from 'module';
+import http from 'http'; import fs from 'fs'; import path from 'path';
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+const { PGlite } = await import(process.env.PGLITE || '@electric-sql/pglite');
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+
+// ---------------------------------------------------------------- database
+const db = new PGlite();
+await db.exec(read('supabase/tests/supabase_stub.sql'));
+await db.exec(read('supabase/tests/storage_stub.sql'));
+await db.exec(read('supabase/migrations/20261029100000_crewdesk.sql'));
+await db.exec(`insert into auth.users (id, email, raw_user_meta_data) values ('11111111-1111-1111-1111-111111111111', 'fowzan@swastikstories.com', '{"username":"fowzan","full_name":"Fowzan","phone":"9820022031"}')`);
+await db.exec(read('supabase/migrations/20261030100000_central.sql'));
+await db.exec(read('supabase/migrations/20261030100100_central_storage.sql'));
+await db.exec(read('supabase/migrations/20261030100200_central_hardening.sql'));
+const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
+const retType = {};
+let q = Promise.resolve();
+const serial = fn => { const p = q.then(fn, fn); q = p.catch(() => {}); return p; };
+const asUser = (uid, sql, params) => serial(async () => {
+  await db.exec('begin');
+  try {
+    await db.query("select set_config('request.jwt.claim.sub', $1, true)", [uid || '']);
+    await db.exec(`set local role ${uid ? 'authenticated' : 'anon'}`);
+    const r = await db.query(sql, params); await db.exec('commit'); return r.rows;
+  } catch (e) { await db.exec('rollback'); throw e; }
+});
+async function pg(op, a){
+  if (op === 'select'){
+    const rows = await asUser(a.uid, `select coalesce(jsonb_agg(to_jsonb(t)), '[]') j from (select * from public.${ident(a.table)}${a.order ? ` order by ${ident(a.order)} ${a.desc ? 'desc' : 'asc'}` : ''}) t`);
+    return rows[0].j;
+  }
+  if (op === 'rpc'){
+    if (!(a.name in retType)) retType[a.name] = (await db.query(`select format_type(prorettype, null) t from pg_proc where proname = $1 and pronamespace = 'public'::regnamespace`, [a.name])).rows[0]?.t;
+    const keys = Object.keys(a.args || {}), vals = keys.map(k => { const v = a.args[k]; return v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v; });
+    const rows = await asUser(a.uid, `select (public.${ident(a.name)}(${keys.map((k, i) => `${ident(k)} => $${i + 1}`).join(', ')}))::text as j`, vals);
+    const t = retType[a.name], j = rows[0].j;
+    return t === 'void' || j === null ? null : t === 'jsonb' ? JSON.parse(j) : t === 'integer' ? +j : j;
+  }
+  if (op === 'login'){
+    const r = (await db.query(`select u.id, u.email from auth.users u join profiles p on p.id = u.id where p.username = lower($1) or lower(u.email) = lower($1)`, [a.login.trim()])).rows[0];
+    if (!r) throw new Error('That username and password don’t match.'); return r;
+  }
+  if (op === 'signup'){
+    const id = (await db.query('select gen_random_uuid() id')).rows[0].id;
+    await db.query('insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3)', [id, a.email, JSON.stringify({username:a.username, full_name:a.full_name, phone:a.phone})]);
+    return {id, email:a.email};
+  }
+  if (op === 'usernameFree') return (await db.query('select username_available($1) ok', [a.u])).rows[0].ok;
+  throw new Error('unknown op ' + op);
+}
+
+// ---------------------------------------------------------------- web server with the production security headers
+const csp = JSON.parse(read('vercel.json')).headers[0].headers[0].value;
+const server = http.createServer((req, res) => {
+  let f = path.join(ROOT, decodeURIComponent(req.url.split('?')[0])); if (f.endsWith('/')) f += 'index.html';
+  if (!fs.existsSync(f)) { res.writeHead(404); return res.end(); }
+  res.writeHead(200, {'Content-Type':{'.html':'text/html', '.js':'application/javascript', '.svg':'image/svg+xml'}[path.extname(f)] || 'text/plain', 'Content-Security-Policy':csp});
+  res.end(fs.readFileSync(f));
+}).listen(5188);
+
+// ---------------------------------------------------------------- the browser side of the stand-in client
+const FAKE = () => {
+  const files = new Proxy(JSON.parse(sessionStorage.getItem('fake-files') || '{}'), {set(t, k, v){ t[k] = v; sessionStorage.setItem('fake-files', JSON.stringify(t)); return true; }}); let user = JSON.parse(sessionStorage.getItem('fake-user') || 'null'); const fns = [];
+  const set = (u, ev) => { user = u; sessionStorage.setItem('fake-user', JSON.stringify(u)); fns.forEach(f => f(ev, u)); };
+  const run = async (op, a) => { const r = await window.pgCall(op, {...a, uid:user?.id}); if (r && r.__error) throw new Error(r.__error); return r; };
+  window.CREWDESK_TEST_DB = async () => ({
+    select: (table, q = {}) => run('select', {table, ...q}),
+    rpc: (name, args = {}) => run('rpc', {name, args}),
+    async upload(p, blob){ if (p.split('/')[0] !== user.id) throw new Error('new row violates row-level security policy'); files[p] = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); }); },
+    async signed(paths){ return Object.fromEntries(paths.filter(p => files[p]).map(p => [p, files[p]])); },
+    auth: {
+      current: async () => user,
+      async signIn(login){ const u = await run('login', {login}); set(u, 'SIGNED_IN'); },
+      async signUp(o){ await run('signup', o); return {needsConfirm:true}; },
+      usernameFree: u => run('usernameFree', {u}),
+      async resetPassword(){}, async updatePassword(){},
+      async signOut(){ set(null, 'SIGNED_OUT'); },
+      onChange(fn){ fns.push(fn); }
+    }
+  });
+};
+
+// ---------------------------------------------------------------- the journey
+const errs = [], ok = m => console.log('  ok ' + m);
+const b = await chromium.launch();
+const ctx = await b.newContext({viewport:{width:1280, height:900}, acceptDownloads:true});
+await ctx.exposeFunction('pgCall', async (op, a) => { try { return await pg(op, a); } catch (e) { return {__error:e.message}; } });
+await ctx.addInitScript(FAKE);
+const p = await ctx.newPage();
+p.on('pageerror', e => errs.push('page error: ' + e.message)); p.on('response', r => { if (r.status() === 404) errs.push('404 ' + r.url().slice(0, 120)); });
+p.on('console', m => { if (m.type() === 'error' && !/fonts\.g|ERR_FAILED/.test(m.text())) errs.push('console: ' + m.text()); });
+await p.route(/fonts\.(googleapis|gstatic)/, r => r.abort());
+await p.route(/cdn\.jsdelivr\.net\/npm\/xlsx/, r => r.fulfill({path:process.env.XLSX, contentType:'application/javascript'}));
+const click = async s => { await p.click(s); await p.waitForTimeout(150); };
+const fill = async (o) => { for (const [k, v] of Object.entries(o)) await p.fill('#' + k, String(v)); };
+const over = async tag => { const o = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth); if (o > 1) errs.push(`sideways scroll ${o}px at ${tag}`); };
+const text = async s => (await p.textContent(s)) || '';
+const signIn = async login => { await p.goto('http://localhost:5188/'); await p.waitForSelector('#li-user'); await fill({'li-user':login, 'li-pass':'whatever123'}); await click('form[data-form=login] button[type=submit]'); await p.waitForTimeout(400); };
+const signOut = async () => { await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); await click('.me'); await click('.menu [data-act=logout]'); await p.waitForSelector('#li-user'); };
+const ev = (f, a) => p.evaluate(f, a);
+const IMG = path.join(ROOT, 'icon.svg');
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+fs.writeFileSync('/tmp/crewdesk-test.png', png);
+
+try {
+  // 1. Owner: one-time company setup, then the first production
+  await signIn('fowzan'); await over('company setup');
+  if (!(await text('h1')).includes('company details')) throw new Error('owner was not sent to company setup');
+  await fill({'co-legal':'Test Films Pvt Ltd', 'co-pan':'AABCT1234K', 'co-tan':'MUMT12345A', 'co-addr':'Andheri West, Mumbai', 'co-bank':'HDFC Bank', 'co-acct':'50200011112222', 'co-ifsc':'HDFC0000212'});
+  await click('form[data-form=company] button[type=submit]');
+  await p.waitForSelector('#np-name'); ok('company saved; production form opened');
+  await fill({'np-name':'Saath Phere', 'np-eps':400, 'np-loc':'Umargam · Floor 3'}); await p.selectOption('#np-status', 'Shooting');
+  await click('form[data-form=project] button[type=submit]'); await p.waitForSelector('.codegen .code');
+  const code = (await text('.codegen .code')).trim(); ok('production created with code ' + code);
+  // onboard two people before they have accounts
+  for (const o of [{n:'Imran Shaikh', ph:'99300 18842', d:'Camera', j:'1st AC / Focus Puller', r:4500, role:'crew'}, {n:'Manoj Patil', em:'manoj@test.in', d:'Production', j:'Line Producer', r:9000, role:'lp'}]){
+    await click('[data-act=onboard]'); await fill({'ob-name':o.n, 'ob-rate':o.r}); if (o.ph) await p.fill('#ob-phone', o.ph); if (o.em) await p.fill('#ob-email', o.em);
+    await p.selectOption('#ob-dept', o.d); await p.selectOption('#ob-job', o.j); await p.selectOption('#ob-role', o.role);
+    await click('form[data-form=onboard] button[type=submit]');
+    if (!(await p.$('.dialog pre'))) throw new Error('invite message not shown: ' + await text('#ob-err').catch(() => ''));
+    if (!(await text('.dialog pre')).includes(code.slice(0, 4))) errs.push('invite message lacks the code'); await click('.dialog [data-act=close-modal]');
+  }
+  ok('two invites created');
+  await click('.rail [data-id=schedule]'); await click('[data-act=plan]');
+  await fill({'pl-from':await ev(() => isoD(dayOff(-6))), 'pl-to':await ev(() => isoD(dayOff(6))), 'pl-ep':300});
+  await click('form[data-form=plan] button[type=submit]');
+  const days = await ev(() => S.days.length); if (days < 10) throw new Error('planning failed: ' + days); ok(`planned ${days} shoot days`); await over('schedule');
+  await signOut();
+
+  // 2. Line Producer signs up and joins; the invite matched by email gives LP access
+  await p.goto('http://localhost:5188/'); await click('[data-act=auth][data-id=signup]');
+  await fill({'su-name':'Manoj Patil', 'su-phone':'98330 44120', 'su-email':'manoj@test.in', 'su-user':'manoj', 'su-pass':'longpassword'});
+  await click('form[data-form=signup] button[type=submit]'); if (!(await text('h2')).includes('Check your email')) throw new Error('sign-up did not ask to confirm email');
+  await signIn('manoj'); await fill({'join-code':code}); await click('form[data-form=join] button[type=submit]');
+  if (await ev(() => myRole()) !== 'lp') throw new Error('Manoj did not get Line Producer access'); ok('LP joined and took up the invite');
+  await signOut();
+
+  // 3. Crew member signs up with the invited mobile number, joins, fills profile and documents
+  await click('[data-act=auth][data-id=signup]');
+  await fill({'su-name':'Imran Shaikh', 'su-phone':'9930018842', 'su-email':'imran@test.in', 'su-user':'imran', 'su-pass':'longpassword'});
+  await click('form[data-form=signup] button[type=submit]'); await signIn('imran');
+  await fill({'join-code':code.toLowerCase()}); await click('form[data-form=join] button[type=submit]');
+  if (!(await text('h1')).includes('onboarding')) throw new Error('crew did not land on My setup'); await over('my setup');
+  await p.setInputFiles('input[data-upload=photo]', '/tmp/crewdesk-test.png'); await p.waitForTimeout(500);
+  await fill({'pf-legal':'Imran Shaikh', 'pf-addr':'Jogeshwari West, Mumbai', 'pf-pan':'FHSPS3349D', 'pf-holder':'Imran Shaikh', 'pf-bank':'Axis Bank', 'pf-acct':'917010023456789', 'pf-ifsc':'UTIB0000071'});
+  await click('form[data-form=profile] button[type=submit]');
+  await p.setInputFiles('input[data-upload=aadhaar]', '/tmp/crewdesk-test.png'); await p.waitForTimeout(500);
+  await p.setInputFiles('input[data-upload=pan]', '/tmp/crewdesk-test.png'); await p.waitForTimeout(500);
+  await p.fill('#dc-a4', '1234'); await p.check('#dc-consent'); await click('form[data-form=docs] button[type=submit]');
+  const ready = await ev(() => me().ready); if (!ready.profile || !ready.docs) throw new Error('profile/docs not complete: ' + JSON.stringify(ready) + ' ' + await text('#dc-err').catch(() => ''));
+  if (!(await ev(() => !!me().photo))) errs.push('photo not shown after upload');
+  ok('crew profile, photo, Aadhaar and PAN saved');
+  await signOut();
+
+  // 4. LP sends the agreement; crew signs; owner approves
+  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=people]');
+  await click('tr:has-text("Imran Shaikh")'); await click('.drawer [data-act=send-ag]');
+  if (await ev(() => S.members.find(m => !m.synthetic && m.job.startsWith('1st AC')).ag.status) !== 'sent') throw new Error('agreement not sent');
+  if (await ev(() => S.users.find(u => u.name === 'Imran Shaikh').pan)) errs.push('Line Producer can see the crew PAN');
+  ok('agreement sent; LP cannot see PAN'); await signOut();
+  await signIn('imran'); await click('[data-act=open-project]');
+  await p.fill('#sg-name', 'Imran Shaikh'); const c = await p.$('#sig'); await c.scrollIntoViewIfNeeded(); const bb = await c.boundingBox();
+  await p.mouse.move(bb.x + 20, bb.y + 40); await p.mouse.down(); await p.mouse.move(bb.x + 140, bb.y + 90, {steps:8}); await p.mouse.up();
+  await click('form[data-form=sign] button[type=submit]');
+  if (await ev(() => memberIn(U.pid, S.session).ag.status) !== 'signed') throw new Error('signing failed: ' + await text('#sg-err').catch(() => ''));
+  const crewCode = await ev(() => memberIn(U.pid, S.session).code); ok('crew signed'); await signOut();
+  await signIn('fowzan'); await click('[data-act=open-project]'); await click('[data-act=open-person]');
+  await click('.drawer [data-act=countersign]');
+  if (await ev(() => S.members.find(m => m.job.startsWith('1st AC')).ag.status) !== 'countersigned') throw new Error('owner approval failed'); ok('owner approved the agreement');
+  if (!(await ev(() => S.users.find(u => u.name === 'Imran Shaikh').pan === 'FHSPS3349D'))) errs.push('owner cannot see crew PAN');
+  if (!(await ev(() => String(S.users.find(u => u.name === 'Imran Shaikh').docs.aadhaar).startsWith('data:image')))) errs.push('owner cannot open the crew Aadhaar image: ' + await ev(() => String(S.users.find(u => u.name === 'Imran Shaikh').docs.aadhaar).slice(0, 30)));
+  await signOut();
+
+  // 5. LP checks the crew member in on a past shoot day
+  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=schedule]');
+  await ev(() => { const d = S.days.filter(x => x.date < today()).pop(); U.drawer = {type:'day', id:d.id}; renderLayer(); });
+  await p.fill('#ci-code', crewCode); await click('form[data-form=checkin] button[type=submit]');
+  if ((await ev(() => S.days.filter(d => d.att.length).length)) !== 1) throw new Error('check-in failed: ' + await text('#ci-err').catch(() => ''));
+  ok('gate check-in recorded'); await signOut();
+
+  // 6. Crew raises an invoice (days filled from check-ins); LP and owner approve; owner pays and sends to Tally
+  await signIn('imran'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=raise]');
+  await fill({'rv-from':await ev(() => isoD(dayOff(-6))), 'rv-to':await ev(() => isoD(dayOff(-1)))});
+  await p.waitForTimeout(100); const qty = await p.inputValue('#rv-qty');
+  if (qty !== '1') errs.push('invoice days not filled from check-ins: ' + qty);
+  await p.fill('#rv-no', 'IS-001'); await click('form[data-form=raise] button[type=submit]');
+  if (await ev(() => S.invoices.length) !== 1) throw new Error('invoice not submitted: ' + await text('#rv-err').catch(() => ''));
+  ok('invoice submitted for ' + qty + ' day'); await signOut();
+  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=hod-ok]');
+  if (await ev(() => S.invoices[0].status) !== 'hod_ok') throw new Error('HOD step failed'); await signOut();
+  await signIn('fowzan'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=final-ok]');
+  await click('.rail [data-id=finance]'); await p.check('input[data-change=selall]'); await p.waitForTimeout(150); await click('[data-act=payrun]');
+  await p.fill('#md-v', 'HDFCBATCH001'); await click('form[data-form=payrun] button[type=submit]');
+  if (await ev(() => S.invoices[0].status) !== 'paid') throw new Error('payment failed: ' + await text('#md-err').catch(() => ''));
+  ok('approved and paid');
+  await click('[data-act=ftab][data-id=tally]'); await click('[data-act=tally-preview]'); await click('[data-act=tally-mark]');
+  if (await ev(() => S.exports.length) !== 1) throw new Error('Tally batch not recorded'); ok('sent to Tally as ' + await ev(() => S.exports[0].id));
+  await click('.rail [data-id=reports]'); await over('reports');
+  const [dl] = await Promise.all([p.waitForEvent('download', {timeout:5000}).catch(() => null), click('[data-act=excel]')]);
+  if (!dl) errs.push('no Excel download'); else ok('Excel downloaded: ' + dl.suggestedFilename());
+  await click('.rail [data-id=activity]'); const logRows = await p.$$eval('main tbody tr', r => r.length); if (logRows < 15) errs.push('activity log short: ' + logRows); else ok(`activity log has ${logRows} entries`);
+  for (const v of ['home','people','invoices','company','access']) { await click(`.rail [data-id=${v}]`); await over(v); }
+  await p.screenshot({path:'/tmp/crewdesk-live-home.png', fullPage:true});
+} catch (e) { errs.push('STOPPED: ' + e.message); await p.screenshot({path:'/tmp/crewdesk-live-fail.png', fullPage:true}); }
+console.log(errs.length ? 'ERRORS:\n' + errs.join('\n') : 'LIVE APP E2E PASSED');
+await b.close(); server.close(); process.exit(errs.length ? 1 : 0);

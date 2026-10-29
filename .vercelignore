@@ -1,0 +1,9 @@
+# Only the app itself is published; source, tests and database scripts stay in the repository.
+legacy
+src
+tools
+tests
+supabase
+demo
+node_modules
+README.md

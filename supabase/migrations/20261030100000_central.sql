@@ -684,7 +684,7 @@ end $$;
 
 -- ================================================================ invoices and payments
 
-create function public.submit_invoice(p_production uuid, p jsonb) returns uuid
+create function public.submit_crew_invoice(p_production uuid, p jsonb) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare c crew; me profiles; amt bigint; g bigint; t bigint; gr numeric := coalesce((p ->> 'gst_rate')::numeric, 0); q numeric := (p ->> 'qty')::numeric; i crew_invoices;
         rates jsonb := '{"194C-1":1,"194C-2":2,"194J-10":10,"194J-2":2,"none":0}';
@@ -735,7 +735,7 @@ begin
   perform add_log(i.production_id, 'invoice', 'Approved ' || i.no || ' for payment', i.crew_id, i.id);
 end $$;
 
-create function public.reject_invoice(p_id uuid, p_reason text) returns void
+create function public.reject_crew_invoice(p_id uuid, p_reason text) returns void
 language plpgsql security definer set search_path = public as $$
 declare i crew_invoices; r text;
 begin

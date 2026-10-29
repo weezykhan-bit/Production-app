@@ -40,7 +40,7 @@ reset role;
 select as_user(:'fowzan'); set role authenticated;
 select refused($$select create_production('{"name":"X"}')$$, 'company details first');
 select refused(format($$select setup_company(%L)$$, jsonb_build_object('legal','Test Films Pvt Ltd','pan','AABCT1234K','tan','BAD','state','27','address','Andheri, Mumbai','signatory','Fowzan','bank',jsonb_build_object('name','HDFC','acct','50200011112222','ifsc','HDFC0000212'))), 'tan_check');
-select refused(format($$select setup_company(%L)$$, jsonb_build_object('legal','Test Films Pvt Ltd','pan','AABCT1234K','tan','MUMT12345A','gstin', mk_gstin('27','AABCX9999K'),'state','27','address','Andheri, Mumbai','signatory','Fowzan','bank',jsonb_build_object('name','HDFC','acct','50200011112222','ifsc','HDFC0000212'))), 'gstin_check');
+select refused(format($$select setup_company(%L)$$, jsonb_build_object('legal','Test Films Pvt Ltd','pan','AABCT1234K','tan','MUMT12345A','gstin', mk_gstin('27','AABCX9999K'),'state','27','address','Andheri, Mumbai','signatory','Fowzan','bank',jsonb_build_object('name','HDFC','acct','50200011112222','ifsc','HDFC0000212'))), 'companies_check');
 select setup_company(jsonb_build_object('legal','Test Films Pvt Ltd','pan','AABCT1234K','tan','MUMT12345A','gstin', mk_gstin('27','AABCT1234K'),'state','24','address','Andheri, Mumbai','signatory','Fowzan','designation','Commercial Head',
   'bank',jsonb_build_object('name','HDFC Bank','acct','5020 0011 112222','ifsc','hdfc0000212'),'tally',jsonb_build_object('company','Test Films','bankLedger','HDFC Bank - Production A/c')));
 select ok(company_info() ->> 'state' = '27', 'state follows the GSTIN, not the dropdown');
@@ -94,11 +94,11 @@ select refused($$select save_documents('1234', false)$$, 'consent');
 select save_documents('1234', true);
 select ok((select docs_ready and profile_ready from people where id = :'imran'), 'profile and documents complete');
 -- direct writes are refused
-select ok((with u as (update crew set rate = 1 returning 1) select count(*) = 0 from u), 'direct edit of own deal changes nothing');
+with u as (update crew set rate = 1 returning 1) select ok(count(*) = 0, 'direct edit of own deal changes nothing') from u;
 select refused($$insert into activity (type, text) values ('x', 'forged')$$, 'row-level security');
 select refused($$select add_log(null, 'x', 'forged')$$, 'row-level security');
 select refused($$insert into crew_invoices (production_id, crew_id, user_id, no, period_from, period_to, qty, rate, unit, amount, tds_key, payable) select production_id, id, user_id, 'F1', current_date, current_date, 1, 1, 'day', 1, 'none', 1 from crew$$, 'row-level security');
-select refused(format($$select submit_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6}')$$, :'pid'), 'once your agreement is approved');
+select refused(format($$select submit_crew_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6}')$$, :'pid'), 'once your agreement is approved');
 reset role;
 
 -- ---------------------------------------------------------------- visibility of KYC
@@ -181,10 +181,10 @@ reset role;
 
 -- ---------------------------------------------------------------- invoices and payment
 select as_user(:'imran'); set role authenticated;
-select refused(format($$select submit_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6,"gst_rate":18}')$$, :'pid'), 'Add your GSTIN');
-select submit_invoice(:'pid', '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6}') as inv \gset
+select refused(format($$select submit_crew_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6,"gst_rate":18}')$$, :'pid'), 'Add your GSTIN');
+select submit_crew_invoice(:'pid', '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6}') as inv \gset
 select ok((select amount = 27000 and tds = 270 and payable = 26730 from crew_invoices where id = :'inv'), 'fee, 1% TDS and payable worked out by the database');
-select refused(format($$select submit_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":1}')$$, :'pid'), 'already used invoice number');
+select refused(format($$select submit_crew_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":1}')$$, :'pid'), 'already used invoice number');
 select refused(format($$select hod_approve(%L)$$, :'inv'), 'Only the head of this department');
 reset role;
 select as_user(:'neha'); set role authenticated;
