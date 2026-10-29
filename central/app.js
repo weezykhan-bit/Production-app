@@ -1,0 +1,1396 @@
+/* ============================================================ reference data */
+const DEPTS = {
+  'Direction':['Director','Episode Director','Creative Director','1st Assistant Director','2nd Assistant Director','3rd Assistant Director','Script Supervisor / Continuity','Clap / Slate'],
+  'Production':['Commercial Head','CFO','Executive Producer','Line Producer','Production Manager','Production Controller','Production Coordinator','Location Manager','Production Assistant','Spot Boy','Runner'],
+  'Writing':['Head Writer','Screenplay Writer','Dialogue Writer','Story Writer','Episodic Writer','Writers Room Assistant'],
+  'Cast':['Lead Actor','Supporting Actor','Child Artist','Day Player','Junior Artist','Dancer','Body Double'],
+  'Casting':['Casting Director','Casting Assistant','Junior Artist Coordinator'],
+  'Camera':['Director of Photography','Camera Operator','1st AC / Focus Puller','2nd AC','DIT','Steadicam Operator','Drone Operator','Camera Attendant'],
+  'Lighting':['Gaffer','Best Boy Electric','Light Assistant','Generator Operator'],
+  'Grip':['Key Grip','Dolly Grip','Crane / Jib Operator','Grip Assistant'],
+  'Art':['Production Designer','Art Director','Set Designer','Set Dresser','Property Master','Props Assistant','Carpenter','Painter'],
+  'Costume':['Costume Designer','Costume Supervisor','Costume Assistant','Dresser','Tailor'],
+  'Hair & Makeup':['Makeup Artist','Hair Stylist','Prosthetics Artist','Makeup Assistant'],
+  'Sound':['Sound Recordist','Boom Operator','Sound Assistant'],
+  'Action & Choreography':['Action Director','Stunt Coordinator','Stunt Performer','Choreographer','Assistant Choreographer'],
+  'Post-production':['Editor','Assistant Editor','Colourist','Online Editor','Sound Designer','Mix Engineer','Subtitler','Post Supervisor'],
+  'VFX & Graphics':['VFX Supervisor','Compositor','Motion Graphics Artist','Roto / Paint Artist'],
+  'Music':['Music Director','Background Score Composer','Lyricist','Playback Singer'],
+  'Transport':['Transport Captain','Driver','Vanity Van Operator'],
+  'Catering & Hospitality':['Catering Manager','Cook','Tea / Craft Service'],
+  'Safety & Medical':['Safety Officer','Set Medic','Security Supervisor','Security Guard'],
+  'Accounts & Legal':['Production Accountant','Cashier','Legal Counsel','Clearances Coordinator'],
+  'Marketing & Publicity':['Stills Photographer','BTS Videographer','Publicist','Social Media Manager'],
+  'Vendors & Services':['Camera & lens rental','Lighting & grip rental','Generator & power','Vanity vans','Cars & tempo travellers','Catering','Location / property','Studio floor','Set construction','Costume & jewellery rental','Junior artist supply','Drone & aerial','Cranes, jibs & tracks','Post-production house','Sound equipment','Hotel & stay','Travel & tickets','Security agency','Insurance','Walkie-talkies & comms'],
+};
+const FORMATS = ['Long-format fiction · daily','Long-format fiction · weekly','Web series','Feature film','Micro-drama','Ad film','Music video','Non-fiction / reality','Documentary'];
+const ROLES = {
+  cfo:{label:'CFO',owner:true}, commercial:{label:'Commercial Head',owner:true}, lp:{label:'Line Producer'}, hop:{label:'Head of Production'},
+  accounts:{label:'Finance & Accounts'}, hod:{label:'Head of Department'}, crew:{label:'Crew / Cast'}, vendor:{label:'Vendor / Service'},
+};
+const UNITS = {day:'per day',episode:'per episode',week:'per week',month:'per month',lump:'lump sum'};
+const QTY = {day:'Days worked',episode:'Episodes',week:'Weeks',month:'Months',lump:'Quantity'};
+const TDS = {
+  '194C-1':{code:'194C',label:'194C · contractor, individual · 1%',rate:1},
+  '194C-2':{code:'194C',label:'194C · contractor, firm or company · 2%',rate:2},
+  '194J-10':{code:'194J',label:'194J · professional or creative fees · 10%',rate:10},
+  '194J-2':{code:'194J',label:'194J · technical services · 2%',rate:2},
+  'none':{code:'none',label:'No TDS (below threshold or exempt)',rate:0},
+};
+const STATES = [['27','Maharashtra'],['24','Gujarat'],['07','Delhi'],['29','Karnataka'],['33','Tamil Nadu'],['36','Telangana'],['37','Andhra Pradesh'],['32','Kerala'],['19','West Bengal'],['09','Uttar Pradesh'],['08','Rajasthan'],['23','Madhya Pradesh'],['06','Haryana'],['03','Punjab'],['30','Goa']];
+const ENTITY = ['Private limited company','LLP','Partnership firm','Proprietorship','Public limited company'];
+const TAN_RE = /^[A-Z]{4}[0-9]{5}[A-Z]$/;
+const DAY = {planned:['Scheduled','info'], shot:['Shot','good'], cancelled:['Cancelled','bad']};
+const DEMO_URL = 'https://crewdesk-production.vercel.app/central/';
+const HOSTED = /vercel\.app$|^localhost$|^127\./.test(location.hostname) || location.protocol === 'file:';
+const STAGES = [['deal','Deal set'],['profile','Profile & bank'],['docs','Aadhaar & PAN'],['sent','Agreement sent'],['signed','Signed'],['active','Approved']];
+const NEXT_LABEL = {deal:'Needs deal',profile:'Profile pending',docs:'Documents pending',sent:'Ready for agreement',signed:'Waiting for signature',active:'Awaiting approval'};
+const INV = {submitted:['Waiting for HOD','warn'],hod_ok:['Waiting for CFO / Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
+
+/* ============================================================ helpers */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr = n => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+const uid = p => p + Math.random().toString(36).slice(2, 8);
+const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dayOff = n => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return d; };
+const today = () => isoD(new Date());
+const daysAgo = n => isoD(dayOff(-n));
+const ymOf = d => String(d).slice(0, 7);
+const ymAt = t => isoD(new Date(t)).slice(0, 7);
+const ymLabel = ym => new Date(ym + '-01T12:00').toLocaleDateString('en-IN', {month:'long', year:'numeric'});
+const ymShort = ym => new Date(ym + '-01T12:00').toLocaleDateString('en-IN', {month:'short'});
+const addYm = (ym, n) => { const d = new Date(ym + '-15T12:00'); d.setMonth(d.getMonth() + n); return isoD(d).slice(0, 7); };
+const fmtD = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}) : '—';
+const fmtT = t => new Date(t).toLocaleString('en-IN', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+const initials = n => String(n || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+const I = {
+  home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.6c2.6-.2 4.8 1.4 5.5 4.4"/>',
+  doc:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+  inv:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  log:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  key:'<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4z"/>', plus:'<path d="M12 5v14M5 12h14"/>', x:'<path d="M6 6l12 12M18 6L6 18"/>',
+  back:'<path d="M15 5l-7 7 7 7"/>', upload:'<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>', send:'<path d="M4 12l16-8-6 16-2-7z"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  grid:'<rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
+  cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', bank:'<path d="M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 21h18"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', building:'<path d="M4 21V5l8-3v19M12 8h8v13M8 8v.01M8 12v.01M8 16v.01M16 12v.01M16 16v.01M2 21h20"/>',
+  down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
+};
+const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/, IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/, ACCT_RE = /^\d{9,18}$/, GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+async function sha256(t){ try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch { return 'unavailable in this browser'; } }
+
+/* ============================================================ demo data */
+function seed(empty = false){
+  const now = Date.now(), ago = (d, h = 0) => now - d * 864e5 - h * 36e5, at = off => isoD(dayOff(off));
+  const dow = (new Date().getDay() + 6) % 7, wkA = -dow - 14, wkB = -dow - 7;   // Mondays of the last two full shoot weeks
+  const bank = (holder, name, acct, ifsc) => ({holder, name, acct, ifsc});
+  const mk = (id, username, name, title, o = {}) => ({id, username, name, title, password:'demo123', phone:o.phone || '', email:o.email || `${username}@example.in`, photo:'',
+    legal:o.full ? name : '', pan:o.full ? o.pan : '', gstin:o.gstin || '', address:o.full ? o.address : '', bank:o.full ? o.bank : {holder:'',name:'',acct:'',ifsc:''},
+    emergency:o.full ? (o.emergency || 'Family · 98200 00000') : '', aadhaar4:o.docs ? (o.a4 || '4821') : '', docs:o.docs ? {aadhaar:'sample', pan:'sample'} : {}, consent:!!o.docs});
+  const users = [
+    mk('u_ritika','ritika','Ritika Menon','cfo',{full:1,docs:1,pan:'AKRPM4410C',address:'Andheri West, Mumbai 400053',bank:bank('Ritika Menon','HDFC Bank','50100234567812','HDFC0000212'),phone:'98200 11021'}),
+    mk('u_fowzan','fowzan','Fowzan','commercial',{full:1,docs:1,pan:'ABXPF2231K',address:'Bandra West, Mumbai 400050',bank:bank('Fowzan','ICICI Bank','001201554433','ICIC0000012'),phone:'98200 22031'}),
+    mk('u_manoj','manoj','Manoj Patil','lp',{full:1,docs:1,pan:'BPLPP7781Q',address:'Goregaon East, Mumbai 400063',bank:bank('Manoj Patil','SBI','30211876544','SBIN0004321'),phone:'98330 44120'}),
+    mk('u_neha','neha','Neha Kulkarni','accounts',{full:1,docs:1,pan:'CQKPK9012M',address:'Thane West 400601',bank:bank('Neha Kulkarni','Kotak Mahindra Bank','7712009934','KKBK0000654'),phone:'99670 31188'}),
+    mk('u_asha','asha','Asha D’Souza','crew',{full:1,docs:1,pan:'DSAPD1188L',gstin:'27DSAPD1188L1Z7',address:'Bandra West, Mumbai 400050',bank:bank('Asha D’Souza','HDFC Bank','50100998812001','HDFC0000045'),phone:'98211 77310'}),
+    mk('u_rohit','rohit','Rohit Yadav','crew',{full:1,docs:1,pan:'EYDPY5520A',address:'Malad West, Mumbai 400064',bank:bank('Rohit Yadav','Bank of Baroda','27100100008871','BARB0MALADX'),phone:'90040 55210'}),
+    mk('u_imran','imran','Imran Shaikh','crew',{full:1,docs:1,pan:'FHSPS3349D',address:'Jogeshwari West, Mumbai 400102',bank:bank('Imran Shaikh','Axis Bank','917010023456789','UTIB0000071'),phone:'99300 18842'}),
+    mk('u_priya','priya','Priya Nair','crew',{full:1,pan:'GNRPN6672B',address:'Vile Parle East, Mumbai 400057',bank:bank('Priya Nair','Federal Bank','15550100093321','FDRL0001555'),phone:'98925 63304'}),
+    mk('u_dev','dev','Dev Malhotra','crew',{full:1,docs:1,pan:'HMLPM8812E',address:'Versova, Mumbai 400061',bank:bank('Dev Malhotra','HDFC Bank','50100771123400','HDFC0000519'),phone:'98190 47722'}),
+    mk('u_sana','sana','Sana Mirza','crew',{phone:'97690 22118'}),
+    mk('u_kiran','kiran','Kiran Lights & Grip','vendor',{full:1,docs:1,pan:'AAKFK4410P',gstin:'27AAKFK4410P1ZQ',address:'Unit 14, Film City Road, Goregaon East, Mumbai 400065',bank:bank('Kiran Lights & Grip','Canara Bank','120002345678','CNRB0001234'),phone:'98201 66009'}),
+    mk('u_anil','anil','Anil Caterers','vendor',{full:1,docs:1,pan:'AAJFA7781R',gstin:'24AAJFA7781R1ZU',address:'Station Road, Umargam, Valsad 396170',bank:bank('Anil Caterers','Bank of India','230120110004421','BKID0002301'),phone:'94270 33150'}),
+    mk('u_om','om','Om Vanity Vans','vendor',{full:1,docs:1,pan:'AAOFO5521H',gstin:'27AAOFO5521H1Z2',address:'Aarey Road, Goregaon East, Mumbai 400063',bank:bank('Om Vanity Vans','Union Bank of India','520101234567890','UBIN0552011'),phone:'98674 20118'}),
+  ];
+  const company = {legal:'Swastik Stories Pvt Ltd (sample)', brand:'Swastik Stories', type:'Private limited company', pan:'AAJCS4421K', tan:'MUMS12345C', gstin:'27AAJCS4421K1Z5', state:'27',
+    cin:'U92100MH2019PTC000000', address:'Office 402, Link Road, Andheri West, Mumbai 400053', signatory:'Ritika Menon', designation:'CFO', email:'accounts@example.in', phone:'022 4000 0000',
+    bank:{name:'HDFC Bank', acct:'50200012345678', ifsc:'HDFC0000212'}, tally:{company:'Swastik Stories Pvt Ltd', bankLedger:'HDFC Bank - Production A/c', expenseGroup:'Direct Expenses', creditorsGroup:'Sundry Creditors'},
+    setupBy:'u_ritika', setupAt:ago(170)};
+  const projects = [
+    {id:'p_saath', name:'Saath Phere', format:'Long-format fiction · daily', platform:'Hindi GEC · Mon–Sat, 8:30 pm', status:'Shooting', planned:400, done:0, block:'', location:'Umargam studio · Floor 3', city:'Mumbai', start:at(-150), invite:'SATH7Q4K', codeAt:ago(150), codeBy:'u_manoj',
+     budget:{'Cast':5200000,'Direction':900000,'Production':1400000,'Accounts & Legal':400000,'Camera':2400000,'Lighting':900000,'Costume':600000,'Vendors & Services':4800000}},
+    {id:'p_kaali', name:'Kaali Raat', format:'Web series', platform:'OTT · Season 1, 8 episodes', status:'Pre-production', planned:8, done:0, block:'Prep', location:'Andheri West, Mumbai', city:'Mumbai', start:at(33), invite:'KAAL2M8X', codeAt:ago(20), codeBy:'u_manoj',
+     budget:{'Cast':3800000,'Camera':1500000,'Art':1200000}},
+    {id:'p_bhoomi', name:'Bhoomi Shorts', format:'Micro-drama', platform:'App · 60 × 2 min', status:'Shooting', planned:60, done:0, block:'', location:'Swastik Bhoomi · Floor 1', city:'Mumbai', start:at(-30), invite:'BHMI5T2R', codeAt:ago(45), codeBy:'u_fowzan',
+     budget:{'Cast':900000,'Costume':150000,'Camera':400000,'Vendors & Services':350000}},
+  ];
+  const ag = (status, d) => status === 'none' ? {status:'none'} : {status, sentAt:ago(d + 3), signedAt:['signed','countersigned'].includes(status) ? ago(d + 1) : null,
+    signedName:null, counterAt:status === 'countersigned' ? ago(d) : null, counterBy:status === 'countersigned' ? 'u_ritika' : null};
+  const mem = (pid, u, role, dept, job, rate, unit, joining, tds, agStatus, o = {}) => ({id:uid('m'), pid, userId:u, role, dept, job, rate, unit, joining, end:o.end || '', tds, terms:o.terms || 30,
+    kind:role === 'vendor' ? 'vendor' : (dept === 'Cast' ? 'cast' : 'crew'), ag:ag(agStatus, o.d || 20), code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:ago(o.d || 30)});
+  const members = [
+    mem('p_saath','u_ritika','cfo','Production','CFO',null,'month',at(-160),'none','countersigned',{d:150}),
+    mem('p_saath','u_fowzan','commercial','Production','Commercial Head',null,'month',at(-160),'none','countersigned',{d:150}),
+    mem('p_saath','u_manoj','lp','Production','Line Producer',9000,'day',at(-150),'194C-1','countersigned',{d:140}),
+    mem('p_saath','u_neha','accounts','Accounts & Legal','Production Accountant',4500,'day',at(-150),'194C-1','countersigned',{d:140}),
+    mem('p_saath','u_asha','hod','Camera','Director of Photography',25000,'day',at(-150),'194J-10','countersigned',{d:138}),
+    mem('p_saath','u_rohit','hod','Lighting','Gaffer',7000,'day',at(-150),'194C-1','countersigned',{d:138}),
+    mem('p_saath','u_imran','crew','Camera','1st AC / Focus Puller',4500,'day',at(-140),'194C-1','countersigned',{d:130}),
+    mem('p_saath','u_priya','crew','Costume','Costume Assistant',2200,'day',at(5),'194C-1','none',{d:2}),
+    mem('p_saath','u_dev','crew','Cast','Supporting Actor',18000,'episode',at(3),'194J-10','sent',{d:3}),
+    mem('p_saath','u_sana','crew','Direction','2nd Assistant Director',4000,'day',at(7),'194C-1','none',{d:1}),
+    mem('p_saath','u_kiran','vendor','Vendors & Services','Lighting & grip rental',32000,'day',at(-150),'194C-2','countersigned',{d:140}),
+    mem('p_saath','u_anil','vendor','Vendors & Services','Catering',28000,'day',at(-150),'194C-2','countersigned',{d:140}),
+    mem('p_saath','u_om','vendor','Vendors & Services','Vanity vans',9500,'day',at(4),'194C-2','signed',{d:2}),
+    mem('p_kaali','u_ritika','cfo','Production','CFO',null,'month',at(-20),'none','countersigned',{d:20}),
+    mem('p_kaali','u_fowzan','commercial','Production','Commercial Head',null,'month',at(-20),'none','countersigned',{d:20}),
+    mem('p_kaali','u_manoj','lp','Production','Line Producer',9500,'day',at(14),'194C-1','countersigned',{d:10}),
+    mem('p_bhoomi','u_fowzan','commercial','Production','Commercial Head',null,'month',at(-50),'none','countersigned',{d:50}),
+    mem('p_bhoomi','u_ritika','cfo','Production','CFO',null,'month',at(-50),'none','countersigned',{d:50}),
+    mem('p_bhoomi','u_priya','crew','Costume','Costume Assistant',2000,'day',at(-30),'194C-1','countersigned',{d:45}),
+  ];
+  members.filter(m => m.ag.signedAt).forEach(m => { m.ag.signedName = users.find(u => u.id === m.userId).name; m.ag.hash = 'seeded-sample'; });
+  const M = (pid, u) => members.find(m => m.pid === pid && m.userId === u);
+
+  // shoot calendar: Mon–Sat, past days shot (with gate check-ins), future days scheduled
+  const days = [];
+  const gen = (pid, from, to, perDay, lastEp, crew, o = {}) => {
+    const list = [];
+    for (let off = from; off <= to; off++){
+      const d = dayOff(off); if (d.getDay() === 0) continue;
+      const status = (o.cancel || []).includes(off) ? 'cancelled' : off < 0 ? 'shot' : 'planned';
+      list.push({id:uid('d'), pid, date:isoD(d), off, status, location:o.loc ? o.loc(off) : 'Umargam · Floor 3', call:'08:00', wrap:'20:00', epFrom:null, epTo:null,
+        note:status === 'cancelled' ? (off < 0 ? 'Power cut on the floor; scenes moved to the next week' : 'Lead artist unavailable') : '', att:[]});
+    }
+    let ep = lastEp - list.filter(d => d.status === 'shot').length * perDay + 1;
+    list.forEach(d => {
+      if (d.status === 'cancelled') return;
+      if (perDay){ d.epFrom = ep; d.epTo = ep + perDay - 1; ep += perDay; }
+      if (d.status === 'shot') d.att = crew.filter(u => !(o.absent || []).some(([x, off]) => x === u && off === d.off));
+    });
+    list.forEach(d => delete d.off); days.push(...list);
+  };
+  gen('p_saath', wkA - 42, -dow + 20, 1, 312, ['u_manoj','u_neha','u_asha','u_rohit','u_imran','u_kiran','u_anil'],
+    {cancel:[wkA - 3, -dow + 10], absent:[['u_imran', wkB + 2]], loc:off => (Math.abs(off) % 5 === 0 ? 'Umargam · Haveli set' : 'Umargam · Floor 3')});
+  gen('p_bhoomi', -dow - 21, -dow + 12, 2, 42, ['u_priya'], {loc:() => 'Swastik Bhoomi · Floor 1'});
+  gen('p_kaali', 33, 60, 0, 0, [], {loc:() => 'Andheri West, Mumbai'});
+  const attIn0 = (pid, u, from, to) => days.filter(d => d.pid === pid && d.status === 'shot' && d.date >= from && d.date <= to && d.att.includes(u)).length;
+
+  // invoices: six weeks of paid history, then the live ones
+  const invoices = [];
+  const mkInv = (pid, u, no, fromOff, toOff, qty, gstRate, status, o = {}) => {
+    const m = M(pid, u), amount = Math.round(qty * m.rate), gst = Math.round(amount * gstRate / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
+    const sub = Math.min(dayOff(toOff + 1).getTime() - 2 * 36e5, now - 6 * 36e5);
+    const i = {id:uid('i'), pid, memberId:m.id, by:u, dept:m.dept, no, from:at(fromOff), to:at(toOff), qty, rate:m.rate, unit:m.unit, desc:`${m.job}, ${fmtD(at(fromOff))} to ${fmtD(at(toOff))}`,
+      amount, gstRate, gst, tdsKey:m.tds, tds, payable:amount + gst - tds, status, at:sub,
+      approvedAt:['approved','paid'].includes(status) ? Math.min(sub + 2 * 864e5, now - 4 * 36e5) : null,
+      paidAt:status === 'paid' ? Math.min(sub + (o.payIn || 9) * 864e5, now - 2 * 36e5) : null,
+      utr:status === 'paid' ? (o.utr || 'HDFCR5' + String(Math.floor(1e11 + Math.random() * 9e11))) : '', reason:'', tp:o.tp || null, tpay:o.tpay || null};
+    invoices.push(i); return i;
+  };
+  const series = [['u_neha','NK-',0,30,2],['u_asha','AD/26-27/',18,7,2],['u_rohit','RY-',0,2,2],['u_imran','IS-',0,24,3],['u_kiran','KLG/',18,111,3],['u_anil','AC-',5,70,2],['u_manoj','MP-',0,14,2]];
+  const nx = u => { const s = series.find(x => x[0] === u); s[3]++; return s[1] + String(s[3]).padStart(s[4], '0'); };
+  for (let w = wkA - 42; w < wkA; w += 7){
+    series.forEach(([u, , g]) => { const q = attIn0('p_saath', u, at(w), at(w + 5)); if (q) mkInv('p_saath', u, nx(u), w, w + 5, q, g, 'paid', {tp:'TX-001', tpay:w < wkA - 7 ? 'TX-001' : null}); });
+  }
+  const q = (u, a, b) => attIn0('p_saath', u, at(a), at(b));
+  const hand = [
+    mkInv('p_saath','u_imran', nx('u_imran'), wkA, wkA + 5, q('u_imran', wkA, wkA + 5), 0, 'paid', {payIn:3, utr:'HDFCR52026102203311'}),
+    mkInv('p_saath','u_anil', nx('u_anil'), wkA, wkA + 5, q('u_anil', wkA, wkA + 5), 5, 'paid', {payIn:3, utr:'SBINR52026102101182'}),
+    mkInv('p_saath','u_manoj', nx('u_manoj'), wkA, wkB + 5, q('u_manoj', wkA, wkB + 5), 0, 'approved'),
+    mkInv('p_saath','u_kiran', nx('u_kiran'), wkB, wkB + 5, q('u_kiran', wkB, wkB + 5), 18, 'approved'),
+    mkInv('p_saath','u_asha', nx('u_asha'), wkB, wkB + 5, q('u_asha', wkB, wkB + 5), 18, 'hod_ok'),
+    mkInv('p_saath','u_imran', nx('u_imran'), wkB, wkB + 5, 6, 0, 'submitted'),
+    mkInv('p_saath','u_rohit', nx('u_rohit'), wkB, wkB + 5, q('u_rohit', wkB, wkB + 5), 0, 'submitted'),
+  ];
+  const tx = invoices.filter(i => i.tp === 'TX-001'), txp = invoices.filter(i => i.tpay === 'TX-001');
+  const exports = [{id:'TX-001', pid:'p_saath', at:dayOff(wkA + 2).getTime(), by:'u_neha', purchases:tx.length, payments:txp.length, value:tx.reduce((s, i) => s + i.amount + i.gst, 0)}];
+
+  const name = id => users.find(u => u.id === id).name;
+  const L = (d, h, by, pid, type, text, extra = {}) => ({id:uid('l'), at:ago(d, h), by, pid, type, text, ...extra});
+  const log = [
+    L(1,3,'u_manoj','p_saath','onboard','Invited Sana Mirza as 2nd Assistant Director, Direction at ₹4,000 per day'),
+    L(1,5,'u_ritika','p_saath','deal','Changed Priya Nair’s rate',{memberId:M('p_saath','u_priya').id, field:'rate', before:2000, after:2200}),
+    L(2,1,'u_om','p_saath','agreement','Signed the engagement agreement',{memberId:M('p_saath','u_om').id}),
+    L(2,4,'u_priya','p_saath','profile','Completed profile and bank details',{memberId:M('p_saath','u_priya').id}),
+    L(3,2,'u_manoj','p_saath','agreement','Sent the agreement to Dev Malhotra',{memberId:M('p_saath','u_dev').id}),
+    L(4,6,'u_manoj','p_saath','schedule','Planned 18 shoot days for the next block'),
+    {id:uid('l'), at:exports[0].at, by:'u_neha', pid:'p_saath', type:'finance', text:`Sent ${tx.length} purchase and ${txp.length} payment vouchers to Tally (TX-001)`},
+  ];
+  hand.forEach(i => {
+    log.push({id:uid('l'), at:i.at, by:i.by, pid:'p_saath', type:'invoice', text:`Submitted invoice ${i.no} for ${inr(i.amount + i.gst)}`, invoiceId:i.id});
+    const hod = i.dept === 'Camera' && i.by !== 'u_asha' ? 'u_asha' : 'u_manoj';
+    if (['hod_ok','approved','paid'].includes(i.status) && i.by !== hod) log.push({id:uid('l'), at:Math.min(i.at + 864e5, now - 5 * 36e5), by:hod, pid:'p_saath', type:'invoice', text:`HOD step approved ${i.no} (${name(i.by)})`, invoiceId:i.id});
+    if (i.approvedAt) log.push({id:uid('l'), at:i.approvedAt, by:'u_fowzan', pid:'p_saath', type:'invoice', text:`Approved ${i.no} for payment`, invoiceId:i.id});
+    if (i.paidAt) log.push({id:uid('l'), at:i.paidAt, by:'u_neha', pid:'p_saath', type:'payment', text:`Marked ${i.no} paid · UTR ${i.utr}`, invoiceId:i.id});
+  });
+  log.sort((a, b) => b.at - a.at);
+  if (empty) return {v:3, company:null, users:users.filter(u => ['u_ritika','u_fowzan','u_manoj','u_neha'].includes(u.id)), projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
+  return {v:3, company, users, projects, members, invoices, days, exports, log, session:null};
+}
+
+/* ============================================================ state */
+const KEY = 'crewdesk-central-demo-v2';
+let S;
+try { const raw = localStorage.getItem(KEY); S = raw ? JSON.parse(raw) : null; } catch { S = null; }
+if (!S || S.v !== 3) S = seed();
+let storageWarned = false;
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { if (!storageWarned){ storageWarned = true; toast('This browser isn’t saving demo data, so changes last until you close the tab.'); } } }
+const U = {view:'projects', pid:null, drawer:null, modal:null, menu:false, chat:false, chatLog:[], pf:'all', pq:'', pd:'', invf:'mine', logf:'', sigInk:false, month:null, fmonth:null, ftab:'pay', sel:[], coEdit:false, qtyTouched:false};
+try { const p = JSON.parse(sessionStorage.getItem('crewdesk-ui') || 'null'); if (p) Object.assign(U, {view:p.view, pid:p.pid}); } catch {}
+const user = id => S.users.find(u => u.id === id);
+const proj = id => S.projects.find(p => p.id === id);
+const member = id => S.members.find(m => m.id === id);
+const me = () => user(S.session);
+const memberIn = (pid, userId) => S.members.find(m => m.pid === pid && m.userId === userId);
+const roleIn = (pid, userId) => memberIn(pid, userId)?.role;
+const myRole = () => roleIn(U.pid, S.session);
+const isOwner = r => !!ROLES[r]?.owner;
+const isStaff = r => r && !['crew','vendor'].includes(r);
+const isLP = r => r === 'lp' || r === 'hop';
+const av = (u, n = 28) => `<span class="av" style="width:${n}px;height:${n}px;font-size:${Math.round(n * .4)}px">${u?.photo ? `<img src="${u.photo}" alt="">` : initials(u?.name)}</span>`;
+const can = {
+  createProject: u => isOwner(u?.title),
+  company: u => isOwner(u?.title),
+  onboard: r => isOwner(r) || isLP(r),
+  code: r => isOwner(r) || isLP(r),
+  editDeal: r => isOwner(r),
+  sendAgreement: r => isOwner(r) || isLP(r),
+  countersign: r => isOwner(r),
+  seeKyc: r => ['cfo','commercial','accounts'].includes(r),
+  pay: r => ['cfo','commercial','accounts'].includes(r),
+  audit: r => isOwner(r) || isLP(r) || r === 'accounts',
+  revert: r => isOwner(r),
+  schedule: r => isOwner(r) || isLP(r),
+  reports: r => isOwner(r) || isLP(r) || r === 'accounts',
+  finance: r => ['cfo','commercial','accounts'].includes(r),
+};
+function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
+const profileDone = u => !!(u.legal && PAN_RE.test(u.pan || '') && u.address && u.bank?.holder && ACCT_RE.test(u.bank?.acct || '') && IFSC_RE.test(u.bank?.ifsc || ''));
+const docsDone = u => !!(u.docs?.aadhaar && u.docs?.pan && u.consent && /^\d{4}$/.test(u.aadhaar4 || ''));
+function stageOf(m){
+  const u = user(m.userId), s = m.ag?.status || 'none';
+  const d = {deal:!!(m.rate && m.joining && m.dept && m.job), profile:profileDone(u), docs:docsDone(u), sent:['sent','signed','countersigned'].includes(s), signed:['signed','countersigned'].includes(s), active:s === 'countersigned'};
+  if (isOwner(m.role)) Object.keys(d).forEach(k => d[k] = true);
+  const next = STAGES.find(([k]) => !d[k]);
+  return {d, next:next ? next[0] : null, n:STAGES.filter(([k]) => d[k]).length};
+}
+const stageChip = m => { const s = stageOf(m); return s.next ? `<span class="chip ${s.next === 'active' || s.next === 'signed' ? 'gold' : 'warn'}">${NEXT_LABEL[s.next]}</span>` : '<span class="chip good">Onboarded</span>'; };
+const dots = m => { const s = stageOf(m); return `<span class="dots" aria-label="${s.n} of 6 steps done">${STAGES.map(([k]) => `<i class="${s.d[k] ? 'on' : (k === s.next ? 'now' : '')}"></i>`).join('')}</span>`; };
+const bankLine = u => u.bank?.acct ? `${u.bank.holder}, ${u.bank.name}, A/c ${u.bank.acct}, IFSC ${u.bank.ifsc}` : '—';
+const mask = (s, keep = 4) => s ? '•••• ' + String(s).slice(-keep) : '—';
+const rateText = m => m.rate ? `${inr(m.rate)} ${UNITS[m.unit]}` : '<span class="muted">Not set</span>';
+
+const co = () => S.company || {legal:'(company not set up yet)', address:'—', pan:'—', tan:'', gstin:'', signatory:'—', designation:'', state:'', bank:{}, tally:{company:'', bankLedger:'Bank Account', expenseGroup:'Direct Expenses', creditorsGroup:'Sundry Creditors'}};
+function agText(m){
+  const u = user(m.userId), p = proj(m.pid), c = co(), who = m.kind === 'vendor' ? 'Service Provider' : (m.kind === 'cast' ? 'Artist' : 'Crew Member');
+  return `ENGAGEMENT AGREEMENT
+${p.name} · ${p.format}
+
+Date: ${fmtD(today())}
+
+BETWEEN ${c.legal}, PAN ${c.pan}${c.gstin ? `, GSTIN ${c.gstin}` : ''}, of ${c.address} ("the Production")
+
+AND ${u.legal || u.name}, PAN ${u.pan || '—'}${u.gstin ? `, GSTIN ${u.gstin}` : ''}, of ${u.address || '—'} ("the ${who}").
+
+1. ENGAGEMENT. The ${who} is engaged as ${m.job} (${m.dept}) from ${fmtD(m.joining)}${m.end ? ` to ${fmtD(m.end)}` : ' until the end of the production schedule or earlier notice'}.
+
+2. FEE. ${inr(m.rate)} ${UNITS[m.unit]}${m.unit === 'episode' ? ', for each episode in which the Artist is called and works' : ''}, plus GST where the ${who} is registered, against invoices raised in CrewDesk. Days are confirmed by gate check-in. Tax is deducted at source${TDS[m.tds]?.rate ? ` under section ${TDS[m.tds].code} at ${TDS[m.tds].rate}%` : ' where the law requires it'}.
+
+3. PAYMENT. Within ${m.terms} days of the invoice being approved, to: ${bankLine(u)}.
+
+4. WORKING DAY. 12 hours including a meal break. Overtime, travel days and holidays are paid only as agreed in writing in advance.
+
+5. CONFIDENTIALITY. Scripts, story, cast, locations and unreleased material stay confidential. Nothing from set is posted or shared without written permission.
+
+6. RIGHTS. All work done for the production belongs to the Production, worldwide and in all media.
+
+7. TERMINATION. Either side may end this agreement with 3 days' written notice. Fees for days already worked remain payable.
+
+8. LAW. Governed by the laws of India; courts at ${p.city}.
+
+For the Production: ${c.signatory}${c.designation ? `, ${c.designation}` : ''}
+
+Signed electronically in CrewDesk. The record keeps the typed name, drawn signature, time and a SHA-256 fingerprint of this text.`;
+}
+
+/* ============================================================ to-do engine */
+function todos(pid, uidv){
+  const r = roleIn(pid, uidv), out = [], mems = S.members.filter(m => m.pid === pid), invs = S.invoices.filter(i => i.pid === pid);
+  const mine = memberIn(pid, uidv);
+  if (isOwner(r)){
+    mems.filter(m => m.ag?.status === 'signed').forEach(m => out.push({t:`Approve ${user(m.userId).name}’s signed agreement`, s:`${m.job} · ${rateText(m)}`, act:'open-person', id:m.id, b:'Review'}));
+    invs.filter(i => i.status === 'hod_ok' && i.by !== uidv).forEach(i => out.push({t:`Approve invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept}`, act:'open-invoice', id:i.id, b:'Review'}));
+    mems.filter(m => !stageOf(m).d.deal).forEach(m => out.push({t:`Set ${user(m.userId).name}’s deal`, s:'Joined with the invite code; needs rate and joining date', act:'edit-deal', id:m.id, b:'Set deal'}));
+  }
+  if (isLP(r) || isOwner(r)){
+    mems.filter(m => stageOf(m).next === 'sent').forEach(m => out.push({t:`Send agreement to ${user(m.userId).name}`, s:'Profile and documents are complete', act:'send-ag', id:m.id, b:'Send'}));
+  }
+  if (isLP(r) || isOwner(r) || r === 'hod'){
+    invs.filter(i => i.status === 'submitted' && i.by !== uidv && (r !== 'hod' || i.dept === mine.dept)).forEach(i => out.push({t:`HOD check: invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept}`, act:'open-invoice', id:i.id, b:'Review'}));
+  }
+  if (can.pay(r)){
+    invs.filter(i => i.status === 'approved').forEach(i => out.push({t:`Pay ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · approved, waiting for payment`, act:'pay', id:i.id, b:'Mark paid'}));
+  }
+  if (can.schedule(r)){
+    const td = S.days.find(d => d.pid === pid && d.date === today() && d.status !== 'cancelled');
+    if (td && !td.att.length) out.push({t:'Check crew in for today’s shoot', s:`${epsLabel(td)} · call ${td.call} · ${esc(td.location)}`, act:'open-day', id:td.id, b:'Open'});
+  }
+  if (can.finance(r)){
+    const n = S.invoices.filter(i => i.pid === pid && ['approved','paid'].includes(i.status) && !i.tp).length + S.invoices.filter(i => i.pid === pid && i.status === 'paid' && !i.tpay).length;
+    if (n) out.push({t:`Send ${n} vouchers to Tally`, s:'Approved invoices and payments not yet in Tally', act:'go-tally', id:'', b:'Open'});
+  }
+  if (!isStaff(r) && mine){
+    const s = stageOf(mine);
+    const map = {deal:'Production is setting your deal (rate and joining date)', profile:'Fill in your profile and bank details', docs:'Upload your masked Aadhaar and PAN card', sent:'Production will send your agreement shortly', signed:'Read and sign your agreement', active:'CFO or Commercial Head is approving your agreement'};
+    if (s.next) out.push({t:map[s.next], s:'Onboarding', act:'go', id:'home', b:['profile','docs','signed'].includes(s.next) ? 'Do it now' : 'View'});
+  }
+  return out;
+}
+
+/* ============================================================ views */
+function render(){
+  try { sessionStorage.setItem('crewdesk-ui', JSON.stringify({view:U.view, pid:U.pid})); } catch {}
+  const app = $('#app');
+  if (!me()){ app.innerHTML = loginView(); renderLayer(); renderChat(); return; }
+  if (U.pid && !memberIn(U.pid, S.session)) { U.pid = null; U.view = 'projects'; }
+  const r = myRole();
+  if (U.pid){
+    const ok = {people:isStaff(r), agreements:isStaff(r), activity:can.audit(r), finance:can.finance(r), reports:can.reports(r), company:isStaff(r)};
+    if (U.view in ok && !ok[U.view]) U.view = 'home';
+  }
+  const views = {home:isStaff(r) ? dashView : mySetupView, schedule:scheduleView, people:peopleView, agreements:agreementsView, invoices:invoicesView, finance:financeView, reports:reportsView, activity:activityView, access:accessView, company:companyView};
+  const view = !U.pid ? (U.view === 'company' ? companyView() : projectsView()) : (views[U.view] || views.home)();
+  app.innerHTML = topBar() + (U.pid ? `<div class="shell">${rail()}<main><div class="wrap">${view}</div></main></div>` : `<main><div class="wrap">${view}</div></main>`);
+  renderLayer(); renderChat(); afterRender();
+}
+function afterRender(){ setupSig(); }
+
+function loginView(){
+  const demo = [['ritika','Ritika Menon','CFO · owner access'],['fowzan','Fowzan','Commercial Head · owner access'],['manoj','Manoj Patil','Line Producer · shares the code'],['neha','Neha Kulkarni','Finance & Accounts'],['asha','Asha D’Souza','HOD · Camera'],['priya','Priya Nair','Crew · onboarding in progress'],['dev','Dev Malhotra','Cast · agreement to sign'],['imran','Imran Shaikh','Crew · onboarded, invoices']].filter(([n]) => S.users.some(x => x.username === n));
+  const su = U.auth === 'signup';
+  return `<div class="login">
+  <section class="login-brand"><div class="stripes"></div>
+    <div class="row" style="gap:10px"><span class="brand" style="color:inherit"><i style="background:var(--accent-ink);color:var(--accent)">CD</i><span>CrewDesk</span></span></div>
+    <div class="stack" style="gap:18px"><h1>Every production, one front desk.</h1>
+      <p>Onboard crew, cast and vendors once: deal, KYC, agreement, invoices and payments in one place, with every change on record.</p></div>
+    <div class="clap" aria-hidden="true"><div><small>Prod</small>Saath Phere</div><div><small>Ep</small>312</div><div><small>Day</small>47</div><div><small>Floor</small>3</div></div>
+  </section>
+  <section class="login-form">
+    <div class="tabs" role="group" aria-label="Sign in or create account"><button data-act="auth" data-id="in" aria-pressed="${!su}">Sign in</button><button data-act="auth" data-id="signup" aria-pressed="${su}">Create account</button></div>
+    ${su ? `<form class="stack" data-form="signup">
+      <h2>Create your account</h2>
+      <div class="grid2"><label class="f">Full name<input type="text" id="su-name" autocomplete="name" required></label><label class="f">Mobile<input type="tel" id="su-phone" autocomplete="tel"></label></div>
+      <label class="f">Username <span class="hint">3–30 characters: a–z, 0–9, dot or underscore</span><input type="text" id="su-user" autocomplete="username" required></label>
+      <label class="f">Password <span class="hint">at least 6 characters</span><input type="password" id="su-pass" autocomplete="new-password" required></label>
+      <p class="err" id="su-err"></p><button class="btn primary" type="submit">Create account</button>
+      <p class="small muted">After this, join your production with the invite code the production office gives you.</p></form>`
+    : `<form class="stack" data-form="login">
+      <h2>Sign in</h2>
+      <label class="f">Username or email<input type="text" id="li-user" autocomplete="username" required></label>
+      <label class="f">Password<input type="password" id="li-pass" autocomplete="current-password" required></label>
+      <p class="err" id="li-err"></p><button class="btn primary" type="submit">Sign in</button></form>`}
+    <div class="stack" style="gap:10px"><p class="eyebrow">Demo accounts · password demo123</p>
+      <div class="demo-list">${demo.map(([u, n, r]) => `<button data-act="demo-login" data-id="${u}"><b>${esc(n)}</b><span>${esc(r)}</span></button>`).join('')}</div>
+      <div class="row"><button class="btn ghost sm" data-act="reset">Reset sample data</button><button class="btn ghost sm" data-act="reset-empty">Start empty (set up company first)</button></div></div>
+  </section></div>`;
+}
+
+function topBar(){
+  const u = me(), mine = S.members.filter(m => m.userId === u.id);
+  const r = U.pid ? myRole() : u.title;
+  return `<header class="top">
+    <button class="brand" data-act="go-projects" aria-label="All productions"><i>CD</i><span>CrewDesk</span></button>
+    ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
+    <span class="grow"></span>
+    <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="reset">Reset demo data</button><button data-act="logout">Sign out</button></div>` : ''}
+  </header>`;
+}
+
+function rail(){
+  const r = myRole(), staff = isStaff(r), n = todos(U.pid, S.session).length;
+  const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], staff && ['people','Crew & vendors','people'],
+    ['invoices', staff ? 'Invoices' : 'My invoices', 'inv'], can.finance(r) && ['finance','Payments & Tally','bank'], can.reports(r) && ['reports','Reports','chart']].filter(Boolean);
+  const more = [staff && ['company','Company details','building'], can.audit(r) && ['activity','Activity log','log'], ['access','Who can do what','key']].filter(Boolean);
+  const b = ([k, l, ic]) => `<button data-act="go" data-id="${k}" ${U.view === k ? 'aria-current="page"' : ''}>${icon(ic)}${l}${k === 'home' && n ? `<span class="count">${n}</span>` : ''}</button>`;
+  return `<nav class="rail" aria-label="Sections">${main.map(b).join('')}<p class="grp">Settings</p>${more.map(b).join('')}
+    <div class="sep"></div><button data-act="go-projects">${icon('grid')}All productions</button>
+    <p class="note">Demo: data stays in this browser. Names, PAN and bank numbers are made up.</p></nav>`;
+}
+
+function projectsView(){
+  const u = me(), mine = S.members.filter(m => m.userId === u.id).map(m => ({m, p:proj(m.pid)}));
+  if (!S.company && can.company(u)) return `<div class="head"><div class="t"><p class="eyebrow">Step 1 of 2 · one-time setup</p><h1>Your company details</h1>
+    <p class="muted" style="max-width:62ch">Entered once by the CFO or Commercial Head. Every production, agreement, invoice and Tally export uses them, so nobody types them again.</p></div></div>
+    <section class="panel">${companyForm()}</section>`;
+  return `<div class="head"><div class="t"><p class="eyebrow">Signed in as ${esc(ROLES[u.title]?.label || 'Crew')}</p><h1>Your productions</h1></div>
+    <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
+  ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
+  ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
+    const mems = S.members.filter(x => x.pid === p.id), act = mems.filter(x => !stageOf(x).next).length, td = todos(p.id, u.id).length, dn = projDone(p);
+    return `<button class="pcard" data-act="open-project" data-id="${p.id}">
+      <div class="spread"><span class="chip ${p.status === 'Shooting' ? 'acc' : 'info'}">${esc(p.status)}</span><span class="chip">${esc(ROLES[m.role].label)}</span></div>
+      <div class="stack" style="gap:4px"><h2>${esc(p.name)}</h2><p class="muted small">${esc(p.format)} · ${esc(p.platform)}</p></div>
+      <div class="stack" style="gap:6px"><div class="spread small"><span class="mono">Ep ${dn} / ${p.planned}</span><span class="muted mono">Next: ${esc(projBlock(p))}</span></div>
+      <div class="meter"><span style="width:${Math.min(100, Math.round(dn / Math.max(1, p.planned) * 100))}%"></span></div></div>
+      <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
+    </button>`; }).join('')}</div>` : `<div class="empty">You aren’t on any production yet. Enter the production code your Line Producer or Head of Production sent you.</div>`}
+  <section class="panel" style="max-width:560px"><h3>Join a production</h3>
+    <form class="row" data-form="join" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" class="mono"></label>
+    <label class="f" style="flex:0 1 170px">Joining as<select id="join-kind"><option value="crew">Crew or cast</option><option value="vendor">Vendor / service</option></select></label><button class="btn" type="submit">Join</button></form>
+    <p class="err" id="join-err"></p></section>`;
+}
+function projHead(title, sub = ''){
+  const p = proj(U.pid);
+  return `<div class="head"><div class="t"><p class="eyebrow">${esc(p.name)}</p><h1>${title}</h1>${sub}</div>
+    <div class="slate" aria-label="Production status"><span><b>FORMAT</b>${esc(p.format.replace('Long-format fiction', 'LFF'))}</span><span><b>EP</b>${projDone(p)}/${p.planned}</span><span><b>NEXT</b>${esc(projBlock(p))}</span></div></div>`;
+}
+const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '—';
+function genCode(name){ const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)]; return name.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase().padEnd(4, 'X') + s; }
+const epsLabel = d => !d.epFrom ? 'No episodes set' : d.epTo > d.epFrom ? `Ep ${d.epFrom}–${d.epTo}` : `Ep ${d.epFrom}`;
+const daysOf = pid => S.days.filter(d => d.pid === pid).sort((a, b) => a.date.localeCompare(b.date));
+const projDone = p => Math.max(p.done || 0, ...S.days.filter(d => d.pid === p.id && d.status === 'shot' && d.epTo).map(d => d.epTo));
+function projBlock(p){
+  const n = daysOf(p.id).filter(d => d.status === 'planned' && d.date >= today());
+  if (!n.length) return p.block || '—';
+  const wk = n.slice(0, 6).filter(d => d.epFrom);
+  return wk.length ? (wk[0].epFrom === wk[wk.length - 1].epTo ? `Ep ${wk[0].epFrom}` : `Ep ${wk[0].epFrom}–${wk[wk.length - 1].epTo}`) : fmtD(n[0].date);
+}
+const attIn = (pid, uidv, from, to) => S.days.filter(d => d.pid === pid && d.status === 'shot' && d.date >= from && d.date <= to && d.att.includes(uidv)).length;
+const overClaim = i => i.unit === 'day' && ['submitted','hod_ok'].includes(i.status) && i.qty > attIn(i.pid, i.by, i.from, i.to);
+function attCheck(i){
+  if (i.unit !== 'day') return '';
+  const n = attIn(i.pid, i.by, i.from, i.to);
+  return `<section class="panel"><h3>Attendance check</h3>${i.qty > n ? `<p><span class="chip bad">Claims ${i.qty} days · gate check-ins show ${n}</span></p><p class="small muted" style="margin-top:8px">Confirm with the HOD before approving.</p>` : `<p><span class="chip good">Matches gate check-ins · ${n} day${n === 1 ? '' : 's'}</span></p>`}</section>`;
+}
+function monthsOf(pid){
+  const s = new Set([ymOf(today())]);
+  S.days.forEach(d => { if (d.pid === pid) s.add(ymOf(d.date)); });
+  S.invoices.forEach(i => { if (i.pid === pid) s.add(ymOf(i.to)); });
+  return [...s].sort();
+}
+// Everything a month report needs. Invoices count in the month their period ends; work not yet invoiced comes from gate check-ins.
+function monthStats(pid, ym){
+  const sum = (a, f) => a.reduce((t, x) => t + f(x), 0);
+  const days = S.days.filter(d => d.pid === pid && d.date.startsWith(ym)), shotD = days.filter(d => d.status === 'shot');
+  const invs = S.invoices.filter(i => i.pid === pid && i.to.startsWith(ym) && i.status !== 'rejected');
+  const byDept = {}, byMember = [];
+  invs.forEach(i => { byDept[i.dept] = byDept[i.dept] || {billed:0, unbilled:0}; byDept[i.dept].billed += i.amount; });
+  let unbilled = 0;
+  S.members.filter(m => m.pid === pid && m.unit === 'day' && m.rate).forEach(m => {
+    const att = shotD.filter(d => d.att.includes(m.userId)).length, mine = invs.filter(i => i.memberId === m.id);
+    const billedQty = sum(mine, i => i.qty), ub = Math.max(0, att - billedQty) * m.rate;
+    if (att || billedQty) byMember.push({m, att, billedQty, ub, billed:sum(mine, i => i.amount)});
+    if (ub){ unbilled += ub; byDept[m.dept] = byDept[m.dept] || {billed:0, unbilled:0}; byDept[m.dept].unbilled += ub; }
+  });
+  const approved = sum(invs.filter(i => ['approved','paid'].includes(i.status)), i => i.amount);
+  const pend = invs.filter(i => ['submitted','hod_ok'].includes(i.status));
+  return {sched:days.filter(d => d.status !== 'cancelled').length, shot:shotD.length, cancelled:days.filter(d => d.status === 'cancelled').length, planned:days.filter(d => d.status === 'planned').length,
+    eps:sum(shotD.filter(d => d.epFrom), d => d.epTo - d.epFrom + 1), approved, pending:sum(pend, i => i.amount), pendingPay:sum(pend, i => i.payable),
+    paid:sum(S.invoices.filter(i => i.pid === pid && i.paidAt && ymAt(i.paidAt) === ym), i => i.payable),
+    toPay:sum(S.invoices.filter(i => i.pid === pid && i.status === 'approved'), i => i.payable),
+    unbilled, total:approved + sum(pend, i => i.amount) + unbilled, byDept, byMember:byMember.sort((a, b) => b.ub - a.ub)};
+}
+function vbars(rows){
+  const max = Math.max(1, ...rows.flatMap(r => [r[1], r[2]]));
+  return `<div class="vbars">${rows.map(([l, a, b, cap]) => `<div class="grp"><div class="cols2"><span style="height:${a / max * 100}%" title="${esc(cap)}"></span><span class="b2" style="height:${b / max * 100}%" title="${esc(cap)}"></span></div><span class="lab">${esc(l)}<br>${esc(cap)}</span></div>`).join('')}</div>`;
+}
+function monthStrip(p){
+  const ym = ymOf(today()), ms = monthStats(p.id, ym), nx = daysOf(p.id).find(d => d.status === 'planned' && d.date >= today()), r = myRole();
+  return `<section class="panel"><div class="spread" style="margin-bottom:12px"><h2>${ymLabel(ym)} so far</h2><div class="row">${can.reports(r) ? '<button class="btn sm" data-act="go" data-id="reports">Full monthly report</button>' : ''}<button class="btn sm" data-act="go" data-id="schedule">Schedule</button></div></div>
+  <div class="kpis">
+    <div class="kpi"><span class="eyebrow">Shoot days</span><span class="v">${ms.shot}<span class="muted" style="font-size:16px">/${ms.sched}</span></span><span class="s">shot of scheduled · ${ms.cancelled} cancelled</span></div>
+    <div class="kpi"><span class="eyebrow">Episodes shot</span><span class="v">${ms.eps}</span><span class="s">in ${ymShort(ym)}</span></div>
+    <div class="kpi"><span class="eyebrow">Cost so far</span><span class="v">${shortInr(ms.total)}</span><span class="s">${ms.unbilled ? shortInr(ms.unbilled) + ' worked but not invoiced yet' : 'all work invoiced'}</span></div>
+    <div class="kpi"><span class="eyebrow">Next shoot</span><span class="v" style="font-size:19px">${nx ? fmtD(nx.date) : '—'}</span><span class="s">${nx ? `${esc(epsLabel(nx))} · call ${nx.call}` : 'Nothing scheduled'}</span></div>
+  </div></section>`;
+}
+function codePanel(p){
+  if (!can.code(myRole())) return '';
+  return `<section class="panel codegen"><div class="spread" style="align-items:center"><div class="stack" style="gap:6px"><span class="eyebrow">Production code · crew join with this</span><span class="code">${fmtCode(p.invite)}</span>
+    <span class="small muted">Generated ${p.codeAt ? fmtT(p.codeAt) : 'at setup'}${p.codeBy ? ' by ' + esc(user(p.codeBy)?.name || '') : ''}. Generating a new code stops the old one from working.</span></div>
+    <div class="row"><button class="btn primary" data-act="share-code">${icon('share', 16)}Share with crew</button><button class="btn" data-act="copy" data-text="${esc(fmtCode(p.invite))}">${icon('copy', 16)}Copy</button><button class="btn ghost" data-act="new-code">Generate new code</button></div></div></section>`;
+}
+
+function dashView(){
+  const p = proj(U.pid), r = myRole(), mems = S.members.filter(m => m.pid === p.id), invs = S.invoices.filter(i => i.pid === p.id), td = todos(p.id, S.session);
+  const onb = mems.filter(m => !stageOf(m).next).length;
+  const pend = invs.filter(i => ['submitted','hod_ok'].includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
+  const sum = (a, k = 'payable') => a.reduce((s, i) => s + i[k], 0);
+  const funnel = STAGES.map(([k, l]) => [l, mems.filter(m => stageOf(m).d[k]).length]);
+  const spend = {}; invs.filter(i => ['approved','paid'].includes(i.status)).forEach(i => spend[i.dept] = (spend[i.dept] || 0) + i.amount);
+  const depts = [...new Set([...Object.keys(p.budget || {}), ...Object.keys(spend)])];
+  const feed = S.log.filter(l => l.pid === p.id).slice(0, 7);
+  return `${projHead(`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, ${esc(me().name.split(' ')[0])}`, `<p class="muted">${esc(ROLES[r].label)} · ${esc(p.platform)} · production code <span class="mono">${fmtCode(p.invite)}</span></p><div class="row"><button class="btn sm" data-act="excel">${icon('down', 15)}Excel report</button></div>`)}
+  <div class="kpis">
+    <div class="kpi ${td.length ? 'attn' : ''}"><span class="eyebrow">Waiting on you</span><span class="v">${td.length}</span><span class="s">${td.length ? 'items need your action' : 'You’re clear'}</span></div>
+    <div class="kpi"><span class="eyebrow">Onboarded</span><span class="v">${onb}<span class="muted" style="font-size:16px">/${mems.length}</span></span><span class="s">${mems.length - onb} still in progress</span></div>
+    <div class="kpi"><span class="eyebrow">In approval</span><span class="v">${inr(sum(pend))}</span><span class="s">${pend.length} invoices · ${toPay.length} approved to pay (${inr(sum(toPay))})</span></div>
+    <div class="kpi"><span class="eyebrow">Paid to date</span><span class="v">${inr(sum(paid))}</span><span class="s">${paid.length} invoices, after TDS</span></div>
+  </div>
+  ${codePanel(p)}
+  ${monthStrip(p)}
+  <div class="cols">
+    <section class="panel todo"><div class="spread" style="margin-bottom:6px"><h2>Waiting on you</h2>${can.onboard(r) ? `<button class="btn primary sm" data-act="onboard">${icon('plus', 16)}Onboard person</button>` : ''}</div>
+      ${td.length ? `<ul>${td.map(t => `<li><div class="what"><b>${esc(t.t)}</b><span class="small muted">${t.s}</span></div><button class="btn sm" data-act="${t.act}" data-id="${t.id}">${t.b}</button></li>`).join('')}</ul>` : '<div class="empty">Nothing needs you right now.</div>'}</section>
+    <section class="panel"><h2>Onboarding pipeline</h2><div class="funnel">${funnel.map(([l, n]) => `<div class="step"><span>${l}</span><div class="track"><div class="fill" style="width:${mems.length ? Math.round(n / mems.length * 100) : 0}%"></div></div><span class="n">${n}</span></div>`).join('')}</div>
+      <p class="small muted" style="margin-top:12px">Each bar counts people who have reached that step, out of ${mems.length} on this production.</p></section>
+  </div>
+  <div class="cols">
+    <section class="panel"><div class="spread" style="margin-bottom:12px"><h2>Budget vs approved spend</h2><span class="small muted">before GST</span></div>
+      ${depts.length ? `<div class="bars">${depts.map(d => { const b = p.budget?.[d] || 0, s = spend[d] || 0, pct = b ? Math.min(100, s / b * 100) : (s ? 100 : 0);
+        return `<div class="bar"><span>${esc(d)}</span><div class="track" title="${inr(s)} of ${inr(b)}"><div class="fill ${b && s > b ? 'over' : ''}" style="width:${pct}%"></div></div><span class="val">${b ? Math.round(s / b * 100) + '% of ' + shortInr(b) : shortInr(s) + ' · no budget'}</span></div>`; }).join('')}</div>` : '<div class="empty">No budget set yet.</div>'}</section>
+    <section class="panel"><div class="spread" style="margin-bottom:8px"><h2>Recent activity</h2>${can.audit(r) ? '<button class="btn ghost sm" data-act="go" data-id="activity">Full log</button>' : ''}</div>
+      <ul class="feed">${feed.map(l => `<li><time>${fmtT(l.at)}</time><span><b>${esc(user(l.by)?.name || 'System')}</b> ${esc(lower(l.text))}</span></li>`).join('') || '<li><span class="muted">No activity yet.</span></li>'}</ul></section>
+  </div>`;
+}
+const lower = t => /^[A-Z]{2}/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1);
+const shortInr = n => n >= 1e7 ? '₹' + (n / 1e7).toFixed(2).replace(/\.?0+$/, '') + ' Cr' : n >= 1e5 ? '₹' + (n / 1e5).toFixed(1).replace(/\.0$/, '') + ' L' : inr(n);
+
+/* ---------- crew & vendor: my setup */
+function mySetupView(){
+  const m = memberIn(U.pid, S.session), u = me(), s = stageOf(m), a = m.ag || {status:'none'};
+  const sec = (k, n, title, done, body, openWhen) => `<details class="sec" ${openWhen ? 'open' : ''}><summary><h3><span class="stepn ${done ? 'on' : (s.next === k ? 'now' : '')}">${done ? '✓' : n}</span>${title}</h3>${done ? '<span class="chip good">Done</span>' : s.next === k ? '<span class="chip gold">Your next step</span>' : '<span class="chip">Pending</span>'}</summary><div class="body">${body}</div></details>`;
+  const signNow = a.status === 'sent' && s.d.profile && s.d.docs;
+  return `${projHead(s.next ? 'Finish your onboarding' : 'You’re onboarded', `<p class="muted">${esc(m.job || 'Role not set yet')}${m.dept ? ' · ' + esc(m.dept) : ''}</p>`)}
+  <section class="panel stack"><div class="stepper">${STAGES.map(([k, l]) => `<div class="${s.d[k] ? 'on' : (s.next === k ? 'now' : '')}">${l}</div>`).join('')}</div>
+    ${s.next ? `<p><b>Next:</b> ${esc(todos(U.pid, S.session)[0]?.t || '')}</p>` : ''}</section>
+  ${!s.next ? `<div class="idcard"><span class="ph">${u.photo ? `<img src="${u.photo}" alt="">` : initials(u.name)}</span><span class="eyebrow" style="color:inherit;opacity:.8">${esc(proj(U.pid).name)} · Crew ID</span><b style="font:700 20px/1.1 var(--f-display)">${esc(u.name)}</b><span>${esc(m.job)} · ${esc(m.dept)}</span><span class="code">${esc(m.code)}</span><span class="small" style="opacity:.8">Show this code at the gate for check-in.</span></div>` : ''}
+  ${sec('deal', 1, 'Your deal', s.d.deal, s.d.deal ? `<dl class="dl"><dt>Role</dt><dd>${esc(m.job)} · ${esc(m.dept)}</dd><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label)}</dd><dt>Payment</dt><dd>Within ${m.terms} days of approval</dd></dl><p class="small muted">Only the CFO or Commercial Head can change your deal. Every change is logged.</p>` : '<p class="muted">The production office is setting your rate and joining date. You’ll see it here.</p>', false)}
+  ${sec('profile', 2, 'Profile & bank details', s.d.profile, profileForm(u), s.next === 'profile')}
+  ${sec('docs', 3, 'Aadhaar & PAN card', s.d.docs, docsForm(u), s.next === 'docs')}
+  ${sec('signed', 4, 'Agreement', s.d.signed, agreementBlock(m, signNow), signNow || s.next === 'active')}
+  ${sec('active', 5, 'Approval by CFO / Commercial Head', s.d.active, s.d.active ? `<p>Approved by ${esc(user(a.counterBy)?.name || 'production')} on ${fmtT(a.counterAt)}.</p>` : '<p class="muted">After you sign, the CFO or Commercial Head countersigns. Then your Crew ID appears at the top of this page.</p>', false)}`;
+}
+function profileForm(u){
+  return `<div class="photo-up">${av(u, 64)}<div class="stack" style="gap:6px"><b>Your photo</b><span class="small muted">Shown on your Crew ID and in the crew list, so the gate and your HOD can recognise you.</span>
+    <label class="btn sm" style="justify-self:start">${icon('upload', 15)}${u.photo ? 'Change photo' : 'Upload photo'}<input type="file" accept="image/*" data-upload="photo" hidden></label></div></div>
+  <form class="stack" data-form="profile">
+    <div class="grid2"><label class="f">Legal name <span class="hint">as on PAN, or company name</span><input type="text" id="pf-legal" value="${esc(u.legal)}"></label>
+    <label class="f">Mobile<input type="tel" id="pf-phone" value="${esc(u.phone)}"></label></div>
+    <div class="grid2"><label class="f">Email<input type="email" id="pf-email" value="${esc(u.email)}"></label><label class="f">Emergency contact<input type="text" id="pf-emer" value="${esc(u.emergency)}" placeholder="Name · number"></label></div>
+    <label class="f">Address<textarea id="pf-addr" rows="2">${esc(u.address)}</textarea></label>
+    <div class="grid2"><label class="f">PAN<input type="text" id="pf-pan" value="${esc(u.pan)}" maxlength="10" placeholder="ABCDE1234F" class="mono"></label>
+    <label class="f">GSTIN <span class="hint">only if registered</span><input type="text" id="pf-gstin" value="${esc(u.gstin)}" maxlength="15" class="mono"></label></div>
+    <p class="eyebrow" style="margin-top:4px">Bank account for payments</p>
+    <div class="grid2"><label class="f">Account holder<input type="text" id="pf-holder" value="${esc(u.bank?.holder)}"></label><label class="f">Bank name<input type="text" id="pf-bank" value="${esc(u.bank?.name)}"></label></div>
+    <div class="grid2"><label class="f">Account number<input type="text" id="pf-acct" value="${esc(u.bank?.acct)}" inputmode="numeric" class="mono"></label><label class="f">IFSC<input type="text" id="pf-ifsc" value="${esc(u.bank?.ifsc)}" maxlength="11" placeholder="HDFC0001234" class="mono"></label></div>
+    <p class="err" id="pf-err"></p><div class="row"><button class="btn primary" type="submit">Save details</button><span class="small muted">Visible to you, the CFO, Commercial Head and Accounts only.</span></div></form>`;
+}
+function docsForm(u){
+  const prev = (k, label) => u.docs?.[k] ? (u.docs[k] === 'sample' ? `<div class="docph">Sample ${label}<br>(demo placeholder)</div>` : `<img src="${u.docs[k]}" alt="Uploaded ${label}">`) : `<div class="docph" style="background:var(--surface-2);color:var(--muted)">No photo yet</div>`;
+  return `<div class="stack">
+    <div class="docs">
+      <div class="doc"><b>Masked Aadhaar</b><span class="small muted">Download it from the myAadhaar site with “masked Aadhaar” ticked, so only the last 4 digits show. Don’t upload your full Aadhaar number.</span>${prev('aadhaar', 'Aadhaar')}
+        <label class="btn sm" style="justify-self:start">${icon('upload', 15)}${u.docs?.aadhaar ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-upload="aadhaar" hidden></label></div>
+      <div class="doc"><b>PAN card</b><span class="small muted">A clear photo of the front of your PAN card. For a company, the company’s PAN.</span>${prev('pan', 'PAN card')}
+        <label class="btn sm" style="justify-self:start">${icon('upload', 15)}${u.docs?.pan ? 'Replace photo' : 'Upload photo'}<input type="file" accept="image/*" data-upload="pan" hidden></label></div>
+    </div>
+    <form class="stack" data-form="docs"><div class="grid2"><label class="f">Last 4 digits of Aadhaar<input type="text" id="dc-a4" value="${esc(u.aadhaar4)}" maxlength="4" inputmode="numeric" class="mono"></label></div>
+      <label class="row small" style="align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="dc-consent" ${u.consent ? 'checked' : ''} style="margin-top:3px"><span>I agree that the production may keep these copies to verify my identity and meet tax rules for this engagement, and delete them when they are no longer needed.</span></label>
+      <p class="err" id="dc-err"></p><div class="row"><button class="btn primary" type="submit">Save documents</button></div></form></div>`;
+}
+function agreementBlock(m, canSign){
+  const a = m.ag || {status:'none'};
+  if (a.status === 'none') return `<p class="muted">The production office sends your agreement once your deal, profile and documents are complete.</p>`;
+  const txt = a.text || agText(m);
+  return `<div class="agreement" tabindex="0" aria-label="Agreement text">${esc(txt)}</div>
+    ${a.status === 'sent' ? (canSign ? `<form class="stack" data-form="sign"><label class="f">Type your full name<input type="text" id="sg-name" value="" autocomplete="name"></label>
+      <div class="stack" style="gap:6px"><div class="spread"><span class="small" style="font-weight:500">Draw your signature</span><button class="btn ghost sm" type="button" data-act="clear-sig">Clear</button></div><canvas id="sig" class="sigpad" aria-label="Signature pad"></canvas></div>
+      <p class="err" id="sg-err"></p><div class="row"><button class="btn primary" type="submit">Sign agreement</button><span class="small muted">Your name, signature, time and a fingerprint of this text are saved.</span></div></form>`
+      : `<p class="muted">Complete your profile and documents first, then sign here.</p>`)
+    : `<div class="row" style="align-items:flex-end;gap:16px">${a.sig ? `<img class="sigimg" src="${a.sig}" alt="Signature">` : ''}<div class="small"><b>Signed by ${esc(a.signedName)}</b><br><span class="muted">${fmtT(a.signedAt)}</span><br><span class="mono muted" style="overflow-wrap:anywhere">SHA-256 ${esc(String(a.hash || '').slice(0, 24))}…</span></div></div>`}`;
+}
+
+/* ---------- people */
+function peopleView(){
+  const r = myRole(), mems = S.members.filter(m => m.pid === U.pid);
+  const groups = [['all','All'],['deal','Needs deal'],['profile','Profile pending'],['docs','Documents pending'],['sent','Ready for agreement'],['signed','Waiting for signature'],['active','Awaiting approval'],['done','Onboarded']];
+  const cnt = k => k === 'all' ? mems.length : mems.filter(m => (stageOf(m).next || 'done') === k).length;
+  const deptOpts = [...new Set(mems.map(m => m.dept).filter(Boolean))].sort();
+  return `${projHead('People', `<p class="muted">Crew, cast and vendors on this production, and where each one is in onboarding.</p>`)}
+  <div class="spread"><div class="filters">${groups.filter(([k]) => k === 'all' || cnt(k)).map(([k, l]) => `<button class="fchip" data-act="pf" data-id="${k}" aria-pressed="${U.pf === k}">${l}<span class="n">${cnt(k)}</span></button>`).join('')}</div>
+    ${can.onboard(r) ? `<button class="btn primary" data-act="onboard">${icon('plus', 16)}Onboard person</button>` : ''}</div>
+  <div class="row"><input type="text" class="search" id="pq" placeholder="Search name, job or department" value="${esc(U.pq)}" data-input="pq" aria-label="Search people">
+    <select id="pd" data-change="pd" style="width:auto;max-width:240px" aria-label="Department"><option value="">All departments</option>${deptOpts.map(d => `<option ${U.pd === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
+  <div class="tablewrap"><table><thead><tr><th>Name</th><th>Department</th><th class="r">Deal</th><th>Joining</th><th>Progress</th><th>Status</th><th>Access</th></tr></thead><tbody id="people-rows">${peopleRows()}</tbody></table></div>`;
+}
+function peopleRows(){
+  const q = U.pq.trim().toLowerCase();
+  const rows = S.members.filter(m => m.pid === U.pid).filter(m => U.pf === 'all' || (stageOf(m).next || 'done') === U.pf).filter(m => !U.pd || m.dept === U.pd)
+    .filter(m => !q || [user(m.userId).name, m.job, m.dept].join(' ').toLowerCase().includes(q));
+  return rows.map(m => { const u = user(m.userId); return `<tr class="click" data-act="open-person" data-id="${m.id}" tabindex="0">
+    <td><span class="row" style="gap:10px;flex-wrap:nowrap">${av(u)}<span><b>${esc(u.name)}</b><span class="sub">${esc(m.job || 'Role not set')}</span></span></span></td>
+    <td>${esc(m.dept || '—')}</td><td class="r num">${m.rate ? `${inr(m.rate)}<span class="sub">${UNITS[m.unit]}</span>` : '<span class="muted">—</span>'}</td><td class="num">${fmtD(m.joining)}</td>
+    <td>${dots(m)}</td><td>${stageChip(m)}</td><td><span class="chip ${isOwner(m.role) ? 'acc' : ''}">${ROLES[m.role].label}</span></td></tr>`; }).join('') || `<tr><td colspan="7"><div class="empty">No one matches these filters.</div></td></tr>`;
+}
+
+/* ---------- agreements */
+function agreementsView(){
+  const r = myRole(), mems = S.members.filter(m => m.pid === U.pid && !isOwner(m.role));
+  const st = m => ({none:['Not sent',''], sent:['Sent · waiting for signature','warn'], signed:['Signed · needs approval','gold'], countersigned:['Approved','good']}[m.ag?.status || 'none']);
+  return `${projHead('Agreements', '<p class="muted">An agreement can be sent once the deal, profile and documents are complete. The CFO or Commercial Head approves it after the person signs.</p>')}
+  <div class="tablewrap"><table><thead><tr><th>Person</th><th>Role</th><th class="r">Fee</th><th>Status</th><th>Signed</th><th class="r">Action</th></tr></thead><tbody>
+  ${mems.map(m => { const u = user(m.userId), s = stageOf(m), [l, c] = st(m), a = m.ag || {};
+    let action = '<span class="muted small">—</span>';
+    if (a.status === 'none' && s.next === 'sent' && can.sendAgreement(r)) action = `<button class="btn sm primary" data-act="send-ag" data-id="${m.id}">Send</button>`;
+    else if (a.status === 'none') action = `<span class="small muted">${NEXT_LABEL[s.next] || ''}</span>`;
+    else if (a.status === 'signed' && can.countersign(r)) action = `<button class="btn sm primary" data-act="countersign" data-id="${m.id}">Approve</button>`;
+    return `<tr class="click" data-act="open-person" data-id="${m.id}"><td><b>${esc(u.name)}</b></td><td>${esc(m.job || '—')}<span class="sub">${esc(m.dept || '')}</span></td><td class="r num">${m.rate ? inr(m.rate) + `<span class="sub">${UNITS[m.unit]}</span>` : '—'}</td>
+    <td><span class="chip ${c}">${l}</span></td><td class="num small">${a.signedAt ? fmtT(a.signedAt) : '—'}</td><td class="r" data-stop="1">${action}</td></tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+
+/* ---------- invoices */
+function invoicesView(){
+  const r = myRole(), staff = isStaff(r), m = memberIn(U.pid, S.session);
+  let invs = S.invoices.filter(i => i.pid === U.pid);
+  if (!staff) invs = invs.filter(i => i.by === S.session);
+  else if (r === 'hod') invs = invs.filter(i => i.dept === m.dept || i.by === S.session);
+  const mineToAct = i => invActions(i).length > 0;
+  const tabs = staff ? [['mine','Needs my action'],['all','All'],['submitted','Waiting for HOD'],['hod_ok','Waiting for owner'],['approved','To pay'],['paid','Paid'],['rejected','Rejected']] : [];
+  const f = staff ? U.invf : 'all';
+  const shown = invs.filter(i => f === 'all' || (f === 'mine' ? mineToAct(i) : i.status === f)).sort((a, b) => b.at - a.at);
+  const canRaise = !staff ? !stageOf(m).next : true;
+  return `${projHead(staff ? 'Invoices' : 'My invoices', `<p class="muted">Approval goes ${esc('HOD → CFO / Commercial Head → Accounts pays')}. TDS comes off the fee before GST is added back.</p>`)}
+  <div class="spread"><div class="filters">${tabs.map(([k, l]) => `<button class="fchip" data-act="invf" data-id="${k}" aria-pressed="${U.invf === k}">${l}<span class="n">${invs.filter(i => k === 'all' || (k === 'mine' ? mineToAct(i) : i.status === k)).length}</span></button>`).join('')}</div>
+    ${m && m.rate ? `<button class="btn primary" data-act="raise" ${canRaise ? '' : 'disabled title="Finish onboarding first"'}>${icon('plus', 16)}Raise invoice</button>` : ''}</div>
+  ${!staff && !canRaise ? '<p class="banner">You can raise invoices once your agreement is approved.</p>' : ''}
+  <div class="tablewrap"><table><thead><tr><th>Invoice</th>${staff ? '<th>From</th>' : ''}<th>Period</th><th class="r">Fee</th><th class="r">GST</th><th class="r">TDS</th><th class="r">Payable</th><th>Status</th><th class="r">Action</th></tr></thead><tbody>
+  ${shown.map(i => { const [l, c] = INV[i.status], acts = invActions(i);
+    return `<tr class="click" data-act="open-invoice" data-id="${i.id}"><td><b class="mono">${esc(i.no)}</b><span class="sub">${fmtT(i.at)}</span></td>${staff ? `<td>${esc(user(i.by).name)}<span class="sub">${esc(i.dept)}</span></td>` : ''}
+    <td class="small">${fmtD(i.from)} – ${fmtD(i.to)}<span class="sub">${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}${overClaim(i) ? ' <span class="flag">⚠ check days</span>' : ''}</span></td><td class="r num">${inr(i.amount)}</td><td class="r num">${i.gst ? inr(i.gst) : '—'}</td><td class="r num">${i.tds ? '−' + inr(i.tds) : '—'}</td><td class="r num"><b>${inr(i.payable)}</b></td>
+    <td><span class="chip ${c}">${l}</span>${i.utr ? `<span class="sub mono">${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="sub">${esc(i.reason)}</span>` : ''}</td>
+    <td class="r" data-stop="1"><span class="row" style="justify-content:flex-end;flex-wrap:nowrap">${acts.map(([a, l, cls]) => `<button class="btn sm ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</span></td></tr>`; }).join('') || `<tr><td colspan="${staff ? 9 : 8}"><div class="empty">${staff ? 'No invoices here.' : 'You haven’t raised an invoice yet.'}</div></td></tr>`}
+  </tbody></table></div>`;
+}
+function invActions(i){
+  const r = myRole(), mine = memberIn(U.pid, S.session), out = [];
+  if (i.status === 'submitted' && i.by !== S.session && (isLP(r) || isOwner(r) || (r === 'hod' && mine.dept === i.dept))) out.push(['hod-ok','Approve']);
+  if (i.status === 'hod_ok' && isOwner(r) && i.by !== S.session) out.push(['final-ok','Approve']);
+  if (i.status === 'approved' && can.pay(r)) out.push(['pay','Mark paid']);
+  if (out.length && i.status !== 'approved') out.push(['reject','Reject','danger']);
+  return out.map(([a, l, c]) => [a, l, c || (a === 'reject' ? '' : 'primary')]);
+}
+
+/* ---------- activity */
+function activityView(){
+  const r = myRole(), types = [['','All changes'],['onboard','Onboarding'],['deal','Deal changes'],['profile','Profile & documents'],['agreement','Agreements'],['invoice','Invoices'],['payment','Payments'],['revert','Reverts'],['project','Production']];
+  const rows = S.log.filter(l => l.pid === U.pid && (!U.logf || l.type === U.logf || (U.logf === 'profile' && l.type === 'docs')));
+  return `${projHead('Activity log', '<p class="muted">Every action on this production, newest first. Deal changes can be undone by the CFO or Commercial Head; the undo is logged too.</p>')}
+  <div class="filters">${types.map(([k, l]) => `<button class="fchip" data-act="logf" data-id="${k}" aria-pressed="${U.logf === k}">${l}</button>`).join('')}</div>
+  <div class="tablewrap"><table><thead><tr><th>When</th><th>Who</th><th>What happened</th><th>Change</th><th class="r"></th></tr></thead><tbody>
+  ${rows.map(l => { const u = user(l.by), canUndo = l.type === 'deal' && can.revert(r) && !l.reverted && member(l.memberId) && member(l.memberId)[l.field] === l.after;
+    return `<tr><td class="num small" style="white-space:nowrap">${fmtT(l.at)}</td><td>${esc(u?.name || 'System')}<span class="sub">${esc(ROLES[roleIn(l.pid, l.by)]?.label || '')}</span></td><td>${esc(l.text)}</td>
+    <td class="diff">${l.field ? `<del>${esc(fmtField(l.field, l.before))}</del> → <ins>${esc(fmtField(l.field, l.after))}</ins>` : ''}${l.reverted ? '<span class="sub">undone</span>' : ''}</td>
+    <td class="r">${canUndo ? `<button class="btn sm" data-act="revert" data-id="${l.id}">Undo</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="5"><div class="empty">Nothing logged for this filter.</div></td></tr>'}
+  </tbody></table></div>`;
+}
+const FIELD = {rate:'Rate', unit:'Rate unit', joining:'Joining date', end:'End date', tds:'TDS section', terms:'Payment terms', dept:'Department', job:'Job', role:'App access'};
+function fmtField(f, v){
+  if (v === null || v === undefined || v === '') return '—';
+  if (f === 'rate') return inr(v); if (f === 'unit') return UNITS[v]; if (f === 'joining' || f === 'end') return fmtD(v);
+  if (f === 'tds') return TDS[v]?.label || v; if (f === 'terms') return v + ' days'; if (f === 'role') return ROLES[v]?.label || v; return String(v);
+}
+
+/* ---------- access */
+function accessView(){
+  const cols = ['cfo','commercial','hop','lp','accounts','hod','crew','vendor'];
+  const rows = [
+    ['Create a production', r => isOwner(r)], ['Onboard people and send invites', r => can.onboard(r)], ['Set or change a deal (rate, dates, TDS)', r => can.editDeal(r)],
+    ['Send agreements', r => can.sendAgreement(r)], ['Approve signed agreements', r => can.countersign(r)], ['See everyone’s PAN, Aadhaar and bank details', r => can.seeKyc(r)],
+    ['Approve invoices at HOD step', r => ['cfo','commercial','lp','hop','hod'].includes(r)], ['Final invoice approval', r => isOwner(r)], ['Mark invoices paid', r => can.pay(r)],
+    ['See the activity log', r => can.audit(r)], ['Undo deal changes', r => can.revert(r)], ['Set up company details (once)', r => isOwner(r)], ['Generate and share the production code', r => can.code(r)],
+    ['Plan the shoot schedule and check crew in', r => can.schedule(r)], ['See monthly reports and costs', r => can.reports(r)],
+    ['Payment runs, TDS and GST registers, Tally sync', r => can.finance(r)],
+    ['Fill own profile, photo, documents, sign, raise invoices', () => true],
+  ];
+  return `${projHead('Who can do what', '<p class="muted">Owner access belongs to the CFO and the Commercial Head. A HOD approves only their own department’s invoices, and nobody approves their own invoice.</p>')}
+  <div class="tablewrap"><table class="matrix"><thead><tr><th>Can…</th>${cols.map(c => `<th>${ROLES[c].label}</th>`).join('')}</tr></thead><tbody>
+  ${rows.map(([l, f]) => `<tr><td>${l}</td>${cols.map(c => `<td>${f(c) ? '<span class="yes" aria-label="yes">✓</span>' : '<span class="no" aria-label="no">·</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ---------- shoot schedule */
+function scheduleView(){
+  const p = proj(U.pid), r = myRole(), staff = isStaff(r), edit = can.schedule(r);
+  if (!U.month) U.month = ymOf(today());
+  const ym = U.month, first = new Date(ym + '-01T12:00'), lead = (first.getDay() + 6) % 7, dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const byDate = {}; S.days.filter(d => d.pid === p.id && d.date.startsWith(ym)).forEach(d => byDate[d.date] = d);
+  const ms = monthStats(p.id, ym), all = S.days.filter(d => d.pid === p.id), tot = all.filter(d => d.status === 'shot').length, ahead = all.filter(d => d.status === 'planned' && d.date >= today()).length;
+  let cells = '';
+  for (let n = 1; n <= dim; n++){
+    const ds = `${ym}-${String(n).padStart(2, '0')}`, d = byDate[ds], t = ds === today() ? ' today' : '';
+    cells += d ? `<button class="d ${d.status}${t}" data-act="open-day" data-id="${d.id}" aria-label="${fmtD(ds)}, ${DAY[d.status][0]}"><span class="n">${n}</span><span class="tag">${d.status === 'cancelled' ? 'Cancelled' : esc(epsLabel(d))}</span><span class="tag">${d.status === 'shot' ? `${d.att.length} checked in` : 'Call ' + d.call}</span>${!staff && d.att.includes(S.session) ? '<span class="tag ok">✓ present</span>' : ''}</button>`
+      : `<button class="d none${t}" ${edit ? `data-act="plan" data-id="${ds}" aria-label="Add a shoot day on ${fmtD(ds)}"` : 'disabled'}><span class="n">${n}</span>${edit ? '<span class="tag">+ Add</span>' : ''}</button>`;
+  }
+  return `${projHead('Shoot schedule', `<p class="muted">${edit ? 'Tap a day to see who was there, check crew in or change it. Tap an empty day to add shoot days.' : 'Your production’s shoot days. Days you were checked in at the gate count towards your invoice.'}</p>`)}
+  <div class="spread"><div class="row"><button class="btn sm" data-act="month" data-id="-1" aria-label="Previous month">${icon('back', 16)}</button><h2 style="min-width:180px;text-align:center">${ymLabel(ym)}</h2>
+    <button class="btn sm" data-act="month" data-id="1" aria-label="Next month"><span style="display:inline-flex;transform:scaleX(-1)">${icon('back', 16)}</span></button><button class="btn ghost sm" data-act="month" data-id="0">This month</button></div>
+    ${edit ? `<button class="btn primary" data-act="plan">${icon('plus', 16)}Plan shoot days</button>` : ''}</div>
+  <div class="kpis">
+    <div class="kpi"><span class="eyebrow">Scheduled in ${ymShort(ym)}</span><span class="v">${ms.sched}</span><span class="s">${ms.planned} still ahead</span></div>
+    <div class="kpi"><span class="eyebrow">Shot</span><span class="v">${ms.shot}</span><span class="s">${ms.eps} episodes</span></div>
+    <div class="kpi"><span class="eyebrow">Cancelled</span><span class="v">${ms.cancelled}</span><span class="s">in ${ymShort(ym)}</span></div>
+    <div class="kpi"><span class="eyebrow">Whole production</span><span class="v">${tot}</span><span class="s">days shot · ${ahead} scheduled ahead</span></div>
+  </div>
+  <section class="panel stack"><div class="cal">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<span class="dow">${d}</span>`).join('')}${'<span></span>'.repeat(lead)}${cells}</div>
+    <div class="legend"><span><i style="background:var(--accent-soft)"></i>Shot</span><span><i style="background:var(--surface)"></i>Scheduled</span><span><i style="background:var(--bad-soft)"></i>Cancelled</span><span><i style="box-shadow:inset 0 0 0 2px var(--marigold)"></i>Today</span></div></section>`;
+}
+function dayDrawer(d){
+  if (!d) return '';
+  const r = myRole(), p = proj(d.pid), [l, c] = DAY[d.status], edit = can.schedule(r);
+  const present = d.att.map(u => memberIn(d.pid, u)).filter(Boolean), dayRate = present.filter(m => m.unit === 'day' && m.rate);
+  return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
+  <div class="stack" style="gap:4px"><p class="eyebrow">${esc(p.name)} · shoot day</p><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
+  <section class="panel"><dl class="dl"><dt>Call time</dt><dd class="mono">${d.call}</dd><dt>Expected wrap</dt><dd class="mono">${d.wrap}</dd><dt>Location</dt><dd>${esc(d.location)}</dd>${d.note ? `<dt>Note</dt><dd>${esc(d.note)}</dd>` : ''}
+    ${isStaff(r) && d.status === 'shot' ? `<dt>Day-rate cost</dt><dd class="num">${inr(dayRate.reduce((s, m) => s + m.rate, 0))} <span class="muted small">for ${dayRate.length} people checked in</span></dd>` : ''}</dl></section>
+  ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status !== 'cancelled' ? `<button class="btn" data-act="day-status" data-id="${d.id}" data-s="cancelled">Cancel this day</button>` : ''}${d.status !== 'planned' ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>` : ''}
+  ${edit && d.status !== 'cancelled' && d.date <= today() ? `<section class="panel stack"><h3>Gate check-in</h3><form class="row" data-form="checkin" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Crew ID<input type="text" id="ci-code" class="mono" placeholder="e.g. ${esc(memberIn(d.pid, 'u_imran')?.code || 'AB12CD')}" autocomplete="off"></label><button class="btn primary" type="submit">Check in</button></form><p class="err" id="ci-err"></p><p class="small muted">In the live app the gate scans the QR on each Crew ID. These days fill everyone’s invoices.</p></section>` : ''}
+  ${isStaff(r) ? `<section class="panel"><h3>Checked in (${present.length})</h3>${present.length ? `<ul class="feed">${present.map(m => `<li>${av(user(m.userId), 26)}<span class="spread"><span><b>${esc(user(m.userId).name)}</b> · ${esc(m.job)}</span>${edit ? `<button class="btn ghost sm" data-act="uncheck" data-id="${d.id}" data-u="${m.userId}">Remove</button>` : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No one checked in.</p>'}</section>`
+    : `<section class="panel"><p>${d.att.includes(S.session) ? '✓ You were checked in on this day.' : 'You weren’t checked in on this day.'}</p></section>`}`;
+}
+
+/* ---------- monthly report */
+function reportsView(){
+  const p = proj(U.pid), months = monthsOf(p.id);
+  if (!U.rmonth || !months.includes(U.rmonth)) U.rmonth = ymOf(today());
+  const ym = U.rmonth, ms = monthStats(p.id, ym), trend = months.filter(m => m <= ymOf(today())).slice(-6).map(m => [m, monthStats(p.id, m)]);
+  const spentTo = {}; S.invoices.filter(i => i.pid === p.id && ['approved','paid'].includes(i.status)).forEach(i => spentTo[i.dept] = (spentTo[i.dept] || 0) + i.amount);
+  const depts = [...new Set([...Object.keys(ms.byDept), ...Object.keys(p.budget || {})])];
+  const overdue = S.invoices.filter(i => i.pid === p.id && i.status === 'approved' && (i.approvedAt || i.at) + (member(i.memberId)?.terms || 30) * 864e5 < Date.now());
+  return `${projHead('Monthly report', `<div class="row" style="align-items:flex-end"><label class="f" style="min-width:200px">Month<select data-change="rmonth" id="rp-month">${months.map(m => `<option value="${m}" ${m === ym ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select></label><button class="btn" data-act="excel">${icon('down', 16)}Download Excel</button></div>`)}
+  <div class="kpis">
+    <div class="kpi"><span class="eyebrow">Shoot days</span><span class="v">${ms.shot}<span class="muted" style="font-size:16px">/${ms.sched}</span></span><span class="s">shot of scheduled · ${ms.cancelled} cancelled</span></div>
+    <div class="kpi"><span class="eyebrow">Episodes shot</span><span class="v">${ms.eps}</span><span class="s">${ms.eps ? shortInr(ms.total / ms.eps) + ' per episode' : '—'}</span></div>
+    <div class="kpi"><span class="eyebrow">Cost of the month</span><span class="v">${shortInr(ms.total)}</span><span class="s">${ms.shot ? shortInr(ms.total / ms.shot) + ' per shoot day' : 'no shoot days'} · before GST</span></div>
+    <div class="kpi"><span class="eyebrow">Paid out</span><span class="v">${shortInr(ms.paid)}</span><span class="s">in ${ymShort(ym)}, after TDS</span></div>
+  </div>
+  <div class="cols">
+    <section class="panel"><div class="spread" style="margin-bottom:6px"><h2>Shoot days by month</h2><div class="legend"><span><i style="background:var(--accent)"></i>Shot</span><span><i style="background:var(--marigold)"></i>Scheduled</span></div></div>${vbars(trend.map(([m, x]) => [ymShort(m), x.shot, x.sched, `${x.shot}/${x.sched}`]))}</section>
+    <section class="panel"><div class="spread" style="margin-bottom:6px"><h2>Cost by month</h2><div class="legend"><span><i style="background:var(--accent)"></i>Approved</span><span><i style="background:var(--marigold)"></i>Pending or not invoiced</span></div></div>${vbars(trend.map(([m, x]) => [ymShort(m), x.approved, x.pending + x.unbilled, shortInr(x.total)]))}</section>
+  </div>
+  <section class="panel"><div class="spread" style="margin-bottom:12px"><h2>Cost by department · ${ymLabel(ym)}</h2><span class="small muted">before GST</span></div>
+    <div class="tablewrap"><table><thead><tr><th>Department</th><th class="r">Invoiced</th><th class="r">Worked, not invoiced</th><th class="r">Month total</th><th class="r">Budget used to date</th></tr></thead><tbody>
+    ${depts.map(d => { const b = ms.byDept[d] || {billed:0, unbilled:0}, bud = p.budget?.[d] || 0, used = spentTo[d] || 0, pct = bud ? Math.round(used / bud * 100) : 0;
+      return `<tr><td>${esc(d)}</td><td class="r num">${b.billed ? inr(b.billed) : '—'}</td><td class="r num">${b.unbilled ? `<span style="color:var(--marigold)">${inr(b.unbilled)}</span>` : '—'}</td><td class="r num"><b>${inr(b.billed + b.unbilled)}</b></td><td class="r num">${bud ? `<span class="${pct > 100 ? 'flag' : ''}">${pct}%</span> of ${shortInr(bud)}` : '<span class="muted">no budget</span>'}</td></tr>`; }).join('')}
+    <tr><td><b>Total</b></td><td class="r num"><b>${inr(ms.approved + ms.pending)}</b></td><td class="r num"><b>${inr(ms.unbilled)}</b></td><td class="r num"><b>${inr(ms.total)}</b></td><td></td></tr></tbody></table></div></section>
+  <div class="stack" style="gap:20px">
+    <section class="panel"><h2>Payments</h2><dl class="dl" style="margin-top:12px"><dt>Paid in ${ymShort(ym)}</dt><dd class="num">${inr(ms.paid)}</dd><dt>In approval</dt><dd class="num">${inr(ms.pendingPay)} <span class="muted small">for ${ymShort(ym)}</span></dd><dt>Approved, to pay</dt><dd class="num">${inr(ms.toPay)} <span class="muted small">all months</span></dd>
+      <dt>Overdue</dt><dd>${overdue.length ? overdue.map(i => `<span class="chip bad">${esc(i.no)} · ${inr(i.payable)}</span>`).join(' ') : '<span class="chip good">None</span>'}</dd></dl></section>
+    <section class="panel"><h2>Days worked vs invoiced</h2><p class="small muted" style="margin:6px 0 10px">From gate check-ins in ${ymLabel(ym)}. Anyone with money in the last column hasn’t invoiced all their days yet.</p>
+      <div class="tablewrap"><table><thead><tr><th>Person</th><th class="r">Days present</th><th class="r">Days invoiced</th><th class="r">Not invoiced</th></tr></thead><tbody>
+      ${ms.byMember.map(x => `<tr><td>${esc(user(x.m.userId).name)}<span class="sub">${esc(x.m.job)}</span></td><td class="r num">${x.att}</td><td class="r num">${x.billedQty}</td><td class="r num">${x.ub ? `<b style="color:var(--marigold)">${inr(x.ub)}</b>` : '—'}</td></tr>`).join('') || '<tr><td colspan="4"><div class="empty">No check-ins this month.</div></td></tr>'}</tbody></table></div></section>
+  </div>`;
+}
+
+/* ---------- finance */
+function gstSplit(i){ const vs = (user(i.by).gstin || '').slice(0, 2); const same = vs && vs === co().state; return same ? {cgst:Math.round(i.gst / 2), sgst:i.gst - Math.round(i.gst / 2), igst:0} : {cgst:0, sgst:0, igst:i.gst}; }
+function financeView(){
+  const p = proj(U.pid), tab = U.ftab || 'pay', c = co(), sum = (a, f) => a.reduce((t, x) => t + f(x), 0);
+  const tabs = [['pay','Payables'],['tds','TDS register'],['gst','GST input'],['tally','Tally sync']];
+  let body = '';
+  if (tab === 'pay'){
+    const list = S.invoices.filter(i => i.pid === p.id && i.status === 'approved').sort((a, b) => (a.approvedAt || 0) - (b.approvedAt || 0));
+    U.sel = U.sel.filter(id => list.some(i => i.id === id));
+    const selTot = sum(list.filter(i => U.sel.includes(i.id)), i => i.payable);
+    body = `<div class="spread"><p class="muted" style="max-width:60ch">Approved invoices waiting for payment. Tick the ones to pay and create one payment run: you get the bank’s bulk-upload file and enter one reference for all.</p>
+      <button class="btn primary" data-act="payrun" ${U.sel.length ? '' : 'disabled'}>Create payment run${U.sel.length ? ` · ${U.sel.length} · ${inr(selTot)}` : ''}</button></div>
+    <div class="tablewrap"><table><thead><tr><th><input type="checkbox" data-change="selall" aria-label="Select all" ${list.length && U.sel.length === list.length ? 'checked' : ''}></th><th>Invoice</th><th>Pay to</th><th>Bank</th><th class="r">Payable</th><th>Due</th></tr></thead><tbody>
+    ${list.map(i => { const u = user(i.by), due = (i.approvedAt || i.at) + (member(i.memberId)?.terms || 30) * 864e5, over = due < Date.now();
+      return `<tr><td><input type="checkbox" data-change="sel" value="${i.id}" ${U.sel.includes(i.id) ? 'checked' : ''} aria-label="Select ${esc(i.no)}"></td><td><b class="mono">${esc(i.no)}</b><span class="sub">${esc(i.dept)}</span></td><td>${esc(u.legal || u.name)}</td>
+      <td class="mono small">${esc(u.bank?.acct || '—')}<span class="sub">${esc(u.bank?.ifsc || '')}</span></td><td class="r num"><b>${inr(i.payable)}</b></td><td>${over ? `<span class="chip bad">Overdue · ${fmtD(isoD(new Date(due)))}</span>` : `<span class="small">${fmtD(isoD(new Date(due)))}</span>`}</td></tr>`; }).join('') || '<tr><td colspan="6"><div class="empty">Nothing approved is waiting for payment.</div></td></tr>'}
+    </tbody></table></div>`;
+  }
+  if (tab === 'tds' || tab === 'gst'){
+    const months = [...new Set([ymOf(today()), ...S.invoices.filter(i => i.pid === p.id && i.approvedAt).map(i => ymAt(i.approvedAt))])].sort();
+    if (!U.fmonth || !months.includes(U.fmonth)) U.fmonth = ymOf(today());
+    const rows = S.invoices.filter(i => i.pid === p.id && i.approvedAt && ymAt(i.approvedAt) === U.fmonth && ['approved','paid'].includes(i.status));
+    const pick = `<label class="f" style="max-width:220px">Month booked<select data-change="fmonth">${months.map(m => `<option value="${m}" ${m === U.fmonth ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select></label>`;
+    if (tab === 'tds'){
+      const t = rows.filter(i => i.tds > 0), bySec = {}; t.forEach(i => { const k = TDS[i.tdsKey].code; bySec[k] = (bySec[k] || 0) + i.tds; });
+      body = `<div class="spread" style="align-items:flex-end">${pick}<div class="row">${Object.entries(bySec).map(([k, v]) => `<span class="chip acc">${k}: ${inr(v)}</span>`).join('')}<span class="chip gold">Deposit by ${fmtD(addYm(U.fmonth, 1) + '-07')}</span></div></div>
+      <div class="tablewrap"><table><thead><tr><th>Booked</th><th>Deductee</th><th>PAN</th><th>Section</th><th class="r">Fee</th><th class="r">Rate</th><th class="r">TDS</th></tr></thead><tbody>
+      ${t.map(i => { const u = user(i.by); return `<tr><td class="small">${fmtD(isoD(new Date(i.approvedAt)))}<span class="sub mono">${esc(i.no)}</span></td><td>${esc(u.legal || u.name)}</td><td class="mono">${esc(u.pan)}</td><td>${TDS[i.tdsKey].code}</td><td class="r num">${inr(i.amount)}</td><td class="r num">${TDS[i.tdsKey].rate}%</td><td class="r num"><b>${inr(i.tds)}</b></td></tr>`; }).join('') || '<tr><td colspan="7"><div class="empty">No TDS booked in this month.</div></td></tr>'}
+      </tbody></table></div><p class="small muted">Deposit with challan ITNS 281 under TAN <span class="mono">${esc(c.tan || '—')}</span> and file Form 26Q each quarter. PANs come from each person’s KYC, so nothing is retyped.</p>`;
+    } else {
+      const g = rows.filter(i => i.gst > 0).map(i => ({i, ...gstSplit(i)})), tot = k => sum(g, x => x[k]);
+      const st = STATES.find(([k]) => k === c.state)?.[1] || c.state;
+      body = `${pick}<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Supplier</th><th>GSTIN</th><th class="r">Taxable</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">IGST</th></tr></thead><tbody>
+      ${g.map(({i, cgst, sgst, igst}) => `<tr><td class="mono">${esc(i.no)}</td><td>${esc(user(i.by).legal || user(i.by).name)}</td><td class="mono small">${esc(user(i.by).gstin)}</td><td class="r num">${inr(i.amount)}</td><td class="r num">${cgst ? inr(cgst) : '—'}</td><td class="r num">${sgst ? inr(sgst) : '—'}</td><td class="r num">${igst ? inr(igst) : '—'}</td></tr>`).join('') || '<tr><td colspan="7"><div class="empty">No GST invoices booked in this month.</div></td></tr>'}
+      ${g.length ? `<tr><td colspan="3"><b>Total input tax</b></td><td class="r num"><b>${inr(sum(g, x => x.i.amount))}</b></td><td class="r num"><b>${inr(tot('cgst'))}</b></td><td class="r num"><b>${inr(tot('sgst'))}</b></td><td class="r num"><b>${inr(tot('igst'))}</b></td></tr>` : ''}</tbody></table></div>
+      <p class="small muted">Suppliers in ${esc(st)} (the company’s state) are split CGST + SGST; other states are IGST. Claim input credit only once the invoice shows in GSTR-2B.</p>`;
+    }
+  }
+  if (tab === 'tally'){
+    const {pur, pay} = tallyPending(p.id), ex = S.exports.filter(x => x.pid === p.id);
+    body = `<div class="cols"><section class="panel stack"><h3>Ready to send to Tally</h3>
+      <dl class="dl"><dt>Purchase vouchers</dt><dd>${pur.length} · ${inr(sum(pur, i => i.amount + i.gst))}</dd><dt>Payment vouchers</dt><dd>${pay.length} · ${inr(sum(pay, i => i.payable))}</dd><dt>Tally company</dt><dd>${esc(c.tally?.company || '—')}</dd><dt>Bank ledger</dt><dd>${esc(c.tally?.bankLedger || '—')}</dd></dl>
+      <div class="row"><button class="btn primary" data-act="tally-preview" ${pur.length + pay.length ? '' : 'disabled'}>Generate Tally files</button></div>
+      <p class="small muted">Each voucher already carries the department’s expense ledger, CGST + SGST or IGST, the TDS section and the party ledger, so nothing is keyed into Tally by hand.</p></section>
+    <section class="panel stack"><h3>How live sync works</h3><ol class="small" style="margin:0;padding-left:18px;display:grid;gap:6px"><li>TallyPrime runs on the accounts PC and accepts imports on port 9000.</li><li>A small CrewDesk connector on that PC picks up approved invoices and payments every few minutes.</li><li>It posts them to Tally and marks them synced here, so nothing is sent twice.</li></ol>
+      <p class="small muted">A web page can’t reach the Tally on your PC, so this demo produces the same import files instead: Gateway of Tally → Import → Masters, then Transactions.</p></section></div>
+    <section class="panel"><h3>Sync history</h3><div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Batch</th><th>When</th><th>By</th><th class="r">Purchases</th><th class="r">Payments</th><th class="r">Value</th></tr></thead><tbody>
+      ${ex.map(x => `<tr><td class="mono">${esc(x.id)}</td><td class="small">${fmtT(x.at)}</td><td>${esc(user(x.by)?.name || '')}</td><td class="r num">${x.purchases}</td><td class="r num">${x.payments}</td><td class="r num">${inr(x.value)}</td></tr>`).join('') || '<tr><td colspan="6"><div class="empty">Nothing sent yet.</div></td></tr>'}</tbody></table></div></section>`;
+  }
+  return `${projHead('Payments & Tally', `<p class="muted">Built from approved invoices. Nothing is typed twice.</p><div class="row"><button class="btn sm" data-act="excel">${icon('down', 15)}Excel report</button></div>`)}
+  <div class="seg" role="group" aria-label="Finance sections">${tabs.map(([k, l]) => `<button data-act="ftab" data-id="${k}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>${body}`;
+}
+function tallyPending(pid){
+  return {pur:S.invoices.filter(i => i.pid === pid && ['approved','paid'].includes(i.status) && !i.tp), pay:S.invoices.filter(i => i.pid === pid && i.status === 'paid' && !i.tpay)};
+}
+function tallyXML(pid){
+  const c = co(), t = c.tally || {}, {pur, pay} = tallyPending(pid);
+  const x = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[ch]));
+  const dt = ts => isoD(new Date(ts)).replace(/-/g, ''), amt = n => n.toFixed(2);
+  const party = i => user(i.by).legal || user(i.by).name, exp = i => `Production - ${i.dept}`, tdsL = i => `TDS Payable - ${TDS[i.tdsKey]?.code}`;
+  const line = (n, a, debit, isParty) => `      <ALLLEDGERENTRIES.LIST><LEDGERNAME>${x(n)}</LEDGERNAME><ISDEEMEDPOSITIVE>${debit ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>${isParty ? '<ISPARTYLEDGER>Yes</ISPARTYLEDGER>' : ''}<AMOUNT>${debit ? '-' : ''}${amt(a)}</AMOUNT></ALLLEDGERENTRIES.LIST>`;
+  const env = (report, body) => `<ENVELOPE>\n <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>\n <BODY><IMPORTDATA>\n  <REQUESTDESC><REPORTNAME>${report}</REPORTNAME><STATICVARIABLES><SVCURRENTCOMPANY>${x(t.company)}</SVCURRENTCOMPANY></STATICVARIABLES></REQUESTDESC>\n  <REQUESTDATA>\n${body}\n  </REQUESTDATA>\n </IMPORTDATA></BODY>\n</ENVELOPE>`;
+  const L = new Map();
+  [...pur, ...pay].forEach(i => L.set(party(i), t.creditorsGroup || 'Sundry Creditors'));
+  pur.forEach(i => { L.set(exp(i), t.expenseGroup || 'Direct Expenses'); const g = gstSplit(i); if (g.cgst) { L.set('Input CGST', 'Duties & Taxes'); L.set('Input SGST', 'Duties & Taxes'); } if (g.igst) L.set('Input IGST', 'Duties & Taxes'); if (i.tds) L.set(tdsL(i), 'Duties & Taxes'); });
+  if (pay.length) L.set(t.bankLedger || 'Bank Account', 'Bank Accounts');
+  const ledgers = env('All Masters', [...L].map(([n, parent]) => `   <TALLYMESSAGE xmlns:UDF="TallyUDF"><LEDGER NAME="${x(n)}" ACTION="Create"><NAME.LIST><NAME>${x(n)}</NAME></NAME.LIST><PARENT>${x(parent)}</PARENT></LEDGER></TALLYMESSAGE>`).join('\n'));
+  const v = [];
+  pur.forEach(i => { const g = gstSplit(i);
+    v.push(`   <TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Purchase" ACTION="Create">
+      <DATE>${dt(i.approvedAt || i.at)}</DATE><VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME><VOUCHERNUMBER>${x(i.no)}</VOUCHERNUMBER><REFERENCE>${x(i.no)}</REFERENCE><PARTYLEDGERNAME>${x(party(i))}</PARTYLEDGERNAME>
+      <NARRATION>${x(`${proj(i.pid).name} · ${i.desc}`)}</NARRATION>
+${[line(exp(i), i.amount, true), g.cgst && line('Input CGST', g.cgst, true), g.sgst && line('Input SGST', g.sgst, true), g.igst && line('Input IGST', g.igst, true), line(party(i), i.payable, false, true), i.tds && line(tdsL(i), i.tds, false)].filter(Boolean).join('\n')}
+   </VOUCHER></TALLYMESSAGE>`); });
+  pay.forEach(i => v.push(`   <TALLYMESSAGE xmlns:UDF="TallyUDF"><VOUCHER VCHTYPE="Payment" ACTION="Create">
+      <DATE>${dt(i.paidAt)}</DATE><VOUCHERTYPENAME>Payment</VOUCHERTYPENAME><REFERENCE>${x(i.utr)}</REFERENCE><PARTYLEDGERNAME>${x(party(i))}</PARTYLEDGERNAME>
+      <NARRATION>${x(`Payment of ${i.no} · UTR ${i.utr}`)}</NARRATION>
+${line(party(i), i.payable, true, true)}
+${line(t.bankLedger || 'Bank Account', i.payable, false)}
+   </VOUCHER></TALLYMESSAGE>`));
+  return {ledgers, vouchers:env('Vouchers', v.join('\n')), pur, pay};
+}
+
+/* ---------- company (set once) */
+const CO_LABEL = {legal:'legal name', brand:'trade name', type:'entity type', pan:'PAN', tan:'TAN', gstin:'GSTIN', state:'state', cin:'CIN', address:'address', signatory:'signatory', designation:'designation', email:'email', phone:'phone', bank:'bank account', tally:'Tally settings'};
+function companyView(){
+  const c = S.company, edit = can.company(me());
+  const head = `<div class="head"><div class="t"><p class="eyebrow">Set once · used on every production</p><h1>Company details</h1><p class="muted" style="max-width:64ch">Agreements, the “bill to” on invoices, the TDS and GST registers and the Tally files all read from here.</p></div></div>`;
+  if (!c) return head + (edit ? `<section class="panel">${companyForm()}</section>` : '<div class="empty">Not set up yet. The CFO or Commercial Head does this once.</div>');
+  if (edit && U.coEdit) return head + `<section class="panel">${companyForm(c)}</section>`;
+  const st = STATES.find(([k]) => k === c.state)?.[1] || c.state, full = can.seeKyc(U.pid ? myRole() : me().title) || edit;
+  return head + `<div class="cols"><section class="panel"><h3>Legal</h3><dl class="dl" style="margin-top:10px"><dt>Legal name</dt><dd><b>${esc(c.legal)}</b></dd><dt>Trade name</dt><dd>${esc(c.brand || '—')}</dd><dt>Entity</dt><dd>${esc(c.type)}</dd>
+    <dt>PAN</dt><dd class="mono">${esc(c.pan)}</dd><dt>TAN</dt><dd class="mono">${esc(c.tan)}</dd><dt>GSTIN</dt><dd class="mono">${esc(c.gstin || 'Not registered')}</dd><dt>State</dt><dd>${esc(st)}</dd><dt>CIN / LLPIN</dt><dd class="mono">${esc(c.cin || '—')}</dd>
+    <dt>Address</dt><dd>${esc(c.address)}</dd><dt>Signs agreements</dt><dd>${esc(c.signatory)}${c.designation ? ', ' + esc(c.designation) : ''}</dd><dt>Accounts contact</dt><dd>${esc(c.email || '—')} · ${esc(c.phone || '—')}</dd></dl></section>
+  <section class="panel"><h3>Payments & Tally</h3><dl class="dl" style="margin-top:10px"><dt>Pays from</dt><dd>${esc(c.bank?.name)} · <span class="mono">${full ? esc(c.bank?.acct) : mask(c.bank?.acct)}</span> · <span class="mono">${esc(c.bank?.ifsc)}</span></dd>
+    <dt>Tally company</dt><dd>${esc(c.tally?.company)}</dd><dt>Bank ledger</dt><dd>${esc(c.tally?.bankLedger)}</dd><dt>Expenses under</dt><dd>${esc(c.tally?.expenseGroup)}</dd><dt>Crew & vendors under</dt><dd>${esc(c.tally?.creditorsGroup)}</dd>
+    <dt>Set up by</dt><dd>${esc(user(c.setupBy)?.name || '—')} · ${c.setupAt ? fmtT(c.setupAt) : ''}</dd></dl></section></div>
+  ${edit ? '<div class="row"><button class="btn" data-act="co-edit">Edit company details</button><span class="small muted">Only the CFO and Commercial Head can change these. Changes are logged.</span></div>' : '<p class="small muted">Only the CFO or Commercial Head can change these.</p>'}`;
+}
+function companyForm(c = {}){
+  const t = c.tally || {company:'', bankLedger:'', expenseGroup:'Direct Expenses', creditorsGroup:'Sundry Creditors'};
+  return `<form class="stack" data-form="company">
+  <p class="eyebrow">Legal</p>
+  <div class="grid2"><label class="f">Legal name <span class="hint">as on the company PAN</span><input type="text" id="co-legal" value="${esc(c.legal)}"></label><label class="f">Trade / brand name<input type="text" id="co-brand" value="${esc(c.brand)}"></label></div>
+  <div class="grid3"><label class="f">Entity type<select id="co-type">${opt(ENTITY, c.type || ENTITY[0])}</select></label><label class="f">PAN<input id="co-pan" type="text" class="mono" maxlength="10" value="${esc(c.pan)}" placeholder="AAACS1234K"></label><label class="f">TAN <span class="hint">needed for TDS</span><input id="co-tan" type="text" class="mono" maxlength="10" value="${esc(c.tan)}" placeholder="MUMS12345C"></label></div>
+  <div class="grid3"><label class="f">GSTIN<input id="co-gstin" type="text" class="mono" maxlength="15" value="${esc(c.gstin)}"></label><label class="f">State<select id="co-state">${opt(STATES.map(([k, v]) => [k, `${v} (${k})`]), c.state || '27')}</select></label><label class="f">CIN / LLPIN <span class="hint">optional</span><input id="co-cin" type="text" class="mono" value="${esc(c.cin)}"></label></div>
+  <label class="f">Registered address<input id="co-addr" type="text" value="${esc(c.address)}"></label>
+  <div class="grid2"><label class="f">Signs agreements (name)<input id="co-sig" type="text" value="${esc(c.signatory || me().name)}"></label><label class="f">Designation<input id="co-desig" type="text" value="${esc(c.designation || ROLES[me().title]?.label || '')}"></label></div>
+  <div class="grid2"><label class="f">Accounts email<input id="co-email" type="email" value="${esc(c.email)}"></label><label class="f">Phone<input id="co-phone" type="tel" value="${esc(c.phone)}"></label></div>
+  <p class="eyebrow" style="margin-top:6px">Bank account you pay crew from</p>
+  <div class="grid3"><label class="f">Bank<input id="co-bank" type="text" value="${esc(c.bank?.name)}"></label><label class="f">Account number<input id="co-acct" type="text" class="mono" inputmode="numeric" value="${esc(c.bank?.acct)}"></label><label class="f">IFSC<input id="co-ifsc" type="text" class="mono" maxlength="11" value="${esc(c.bank?.ifsc)}"></label></div>
+  <p class="eyebrow" style="margin-top:6px">Tally</p>
+  <div class="grid2"><label class="f">Company name in Tally <span class="hint">exactly as in Tally</span><input id="co-tco" type="text" value="${esc(t.company)}"></label><label class="f">Bank ledger in Tally<input id="co-tbank" type="text" value="${esc(t.bankLedger)}" placeholder="HDFC Bank - Production A/c"></label></div>
+  <div class="grid2"><label class="f">Production expenses go under<select id="co-texp">${opt(['Direct Expenses','Indirect Expenses','Purchase Accounts'], t.expenseGroup)}</select></label><label class="f">Crew and vendors go under<select id="co-tcred">${opt(['Sundry Creditors'], t.creditorsGroup)}</select></label></div>
+  <p class="err" id="co-err"></p><div class="row"><button class="btn primary" type="submit">${S.company ? 'Save changes' : 'Save and continue'}</button>${S.company ? '<button class="btn ghost" type="button" data-act="co-cancel">Cancel</button>' : ''}</div></form>`;
+}
+
+/* ---------- Excel */
+function workbookData(pid){
+  const p = proj(pid), ym = U.rmonth || ymOf(today()), ms = monthStats(pid, ym), c = co(), r = myRole(), fin = can.finance(r);
+  const sh = {};
+  sh['Summary'] = [['Production', p.name], ['Company', c.legal], ['Month', ymLabel(ym)], ['Shoot days scheduled', ms.sched], ['Shoot days shot', ms.shot], ['Shoot days cancelled', ms.cancelled], ['Episodes shot', ms.eps],
+    ['Invoiced cost (₹, before GST)', ms.approved + ms.pending], ['Worked, not invoiced yet (₹)', ms.unbilled], ['Total cost of the month (₹)', ms.total], ['Cost per shoot day (₹)', ms.shot ? Math.round(ms.total / ms.shot) : 0],
+    ['Cost per episode (₹)', ms.eps ? Math.round(ms.total / ms.eps) : 0], ['Paid out in the month (₹)', ms.paid], ['Approved, waiting for payment (₹)', ms.toPay], ['Exported', new Date().toLocaleString('en-IN')]].map(([Item, Value]) => ({Item, Value}));
+  sh['Cost by department'] = [...new Set([...Object.keys(ms.byDept), ...Object.keys(p.budget || {})])].map(d => { const b = ms.byDept[d] || {billed:0, unbilled:0}; return {Department:d, 'Invoiced (₹)':b.billed, 'Worked, not invoiced (₹)':b.unbilled, 'Month total (₹)':b.billed + b.unbilled, 'Total budget (₹)':p.budget?.[d] || 0}; });
+  sh['Shoot days'] = daysOf(pid).map(d => ({Date:d.date, Status:DAY[d.status][0], Episodes:d.epFrom ? epsLabel(d) : '', Location:d.location, Call:d.call, Wrap:d.wrap, 'Checked in':d.att.length, Note:d.note || ''}));
+  sh['Crew & vendors'] = S.members.filter(m => m.pid === pid).map(m => { const u = user(m.userId), s = stageOf(m); return {Name:u.name, Department:m.dept, Job:m.job, Access:ROLES[m.role].label, 'Rate (₹)':m.rate || '', Per:UNITS[m.unit], Joining:m.joining, 'TDS section':TDS[m.tds]?.label || '', Status:s.next ? NEXT_LABEL[s.next] : 'Onboarded', Mobile:u.phone, PAN:can.seeKyc(r) ? u.pan : mask(u.pan), 'Crew ID':m.code}; });
+  sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, Department:i.dept, From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Payable (₹)':i.payable, Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
+  if (fin){
+    sh['TDS'] = S.invoices.filter(i => i.pid === pid && i.tds > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Deductee:user(i.by).legal || user(i.by).name, PAN:user(i.by).pan, Section:TDS[i.tdsKey].code, 'Rate %':TDS[i.tdsKey].rate, 'Fee (₹)':i.amount, 'TDS (₹)':i.tds}));
+    sh['GST input'] = S.invoices.filter(i => i.pid === pid && i.gst > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Supplier:user(i.by).legal || user(i.by).name, GSTIN:user(i.by).gstin, 'Taxable (₹)':i.amount, ...Object.fromEntries(Object.entries(gstSplit(i)).map(([k, v]) => [k.toUpperCase() + ' (₹)', v]))}));
+  }
+  return sh;
+}
+const tsv = rows => { if (!rows.length) return ''; const k = Object.keys(rows[0]); return [k.join('\t'), ...rows.map(r => k.map(x => String(r[x] ?? '').replace(/[\t\n]/g, ' ')).join('\t'))].join('\n'); };
+function exportExcel(){
+  const p = proj(U.pid), sheets = workbookData(U.pid), name = `${p.name.replace(/[^A-Za-z0-9]+/g, '-')}-${U.rmonth || ymOf(today())}.xlsx`;
+  if (!HOSTED || !window.XLSX){ U.modal = {type:'excel'}; return renderLayer(); }
+  const wb = XLSX.utils.book_new();
+  Object.entries(sheets).forEach(([n, rows]) => { const data = rows.length ? rows : [{Note:'No data'}], ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = Object.keys(data[0]).map(k => ({wch:Math.max(12, Math.min(42, Math.max(k.length, ...data.map(r => String(r[k] ?? '').length)) + 2))})); XLSX.utils.book_append_sheet(wb, ws, n.slice(0, 31)); });
+  XLSX.writeFile(wb, name); log(U.pid, 'finance', `Downloaded the Excel report ${name}`); save(); toast(`${name} downloaded`);
+}
+
+/* ============================================================ drawer & modals */
+function renderLayer(){
+  const L = $('#layer');
+  let html = '';
+  if (U.drawer) html += `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${U.drawer.type === 'person' ? personDrawer(member(U.drawer.id)) : U.drawer.type === 'day' ? dayDrawer(S.days.find(d => d.id === U.drawer.id)) : invoiceDrawer(S.invoices.find(i => i.id === U.drawer.id))}</aside>`;
+  if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog">${modalBody()}</div></div>`;
+  L.innerHTML = html;
+}
+function personDrawer(m){
+  if (!m) return '';
+  const u = user(m.userId), r = myRole(), s = stageOf(m), a = m.ag || {}, kyc = can.seeKyc(r) || u.id === S.session;
+  const hist = S.log.filter(l => l.pid === m.pid && (l.memberId === m.id || l.by === u.id || (l.text || '').includes(u.name))).slice(0, 8);
+  const invs = S.invoices.filter(i => i.memberId === m.id);
+  const prev = (k, label) => u.docs?.[k] ? (u.docs[k] === 'sample' ? `<div class="docph">Sample ${label}<br>(demo placeholder)</div>` : `<img src="${u.docs[k]}" alt="${label}">`) : `<div class="docph" style="background:var(--surface-2);color:var(--muted)">Not uploaded</div>`;
+  return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button>${stageChip(m)}</div>
+  <div class="row" style="gap:14px;flex-wrap:nowrap">${av(u, 56)}<div class="stack" style="gap:2px;min-width:0"><h2>${esc(u.name)}</h2><p class="muted">${esc(m.job || 'Role not set')}${m.dept ? ' · ' + esc(m.dept) : ''} · <span class="mono">${esc(m.code)}</span></p></div></div>
+  <div class="stepper">${STAGES.map(([k, l]) => `<div class="${s.d[k] ? 'on' : (s.next === k ? 'now' : '')}">${l}</div>`).join('')}</div>
+  <div class="row">
+    ${can.editDeal(r) ? `<button class="btn" data-act="edit-deal" data-id="${m.id}">${s.d.deal ? 'Edit deal' : 'Set deal'}</button>` : ''}
+    ${s.next === 'sent' && can.sendAgreement(r) ? `<button class="btn primary" data-act="send-ag" data-id="${m.id}">Send agreement</button>` : ''}
+    ${a.status === 'signed' && can.countersign(r) ? `<button class="btn primary" data-act="countersign" data-id="${m.id}">Approve agreement</button>` : ''}
+    ${s.next === 'profile' || s.next === 'docs' ? `<button class="btn" data-act="nudge" data-id="${m.id}">Send reminder</button>` : ''}
+  </div>
+  <section class="panel"><h3>Deal</h3><dl class="dl"><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label || '—')}</dd><dt>Payment terms</dt><dd>${m.terms} days after approval</dd><dt>App access</dt><dd>${ROLES[m.role].label}</dd></dl></section>
+  <section class="panel"><h3>Profile & bank</h3>${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
+    <dt>PAN</dt><dd class="mono">${esc(u.pan || '—')}</dd><dt>GSTIN</dt><dd class="mono">${esc(u.gstin || 'Not registered')}</dd><dt>Aadhaar</dt><dd class="mono">${u.aadhaar4 ? 'XXXX XXXX ' + esc(u.aadhaar4) : '—'}</dd><dt>Bank</dt><dd>${esc(bankLine(u))}</dd><dt>Emergency</dt><dd>${esc(u.emergency || '—')}</dd></dl>`
+    : `<dl class="dl"><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>PAN</dt><dd class="mono">${mask(u.pan)}</dd><dt>Bank</dt><dd class="mono">${mask(u.bank?.acct)}</dd></dl><p class="small muted">Full KYC and bank details are visible to the CFO, Commercial Head and Accounts.</p>`}</section>
+  ${kyc ? `<section class="panel"><h3>Documents</h3><div class="docs"><div class="doc"><b>Masked Aadhaar</b>${prev('aadhaar', 'Aadhaar')}</div><div class="doc"><b>PAN card</b>${prev('pan', 'PAN card')}</div></div>${u.consent ? '<p class="small muted">Consent to keep copies: given.</p>' : '<p class="small" style="color:var(--warn)">Consent not given yet.</p>'}</section>` : ''}
+  <section class="panel"><h3>Agreement</h3>${agreementBlock(m, false)}${a.counterAt ? `<p class="small" style="margin-top:10px">Approved by <b>${esc(user(a.counterBy)?.name)}</b> · ${fmtT(a.counterAt)}</p>` : ''}</section>
+  <section class="panel"><h3>Invoices</h3>${invs.length ? `<ul class="feed">${invs.map(i => `<li><time class="mono">${esc(i.no)}</time><span>${inr(i.payable)} · <span class="chip ${INV[i.status][1]}">${INV[i.status][0]}</span></span></li>`).join('')}</ul>` : '<p class="muted">No invoices yet.</p>'}</section>
+  ${can.audit(r) ? `<section class="panel"><h3>History</h3><ul class="feed">${hist.map(l => `<li><time>${fmtT(l.at)}</time><span><b>${esc(user(l.by)?.name || '')}</b> ${esc(lower(l.text))}${l.field ? ` <span class="diff"><del>${esc(fmtField(l.field, l.before))}</del> → <ins>${esc(fmtField(l.field, l.after))}</ins></span>` : ''}</span></li>`).join('') || '<li><span class="muted">No history yet.</span></li>'}</ul></section>` : ''}`;
+}
+function invoiceDrawer(i){
+  if (!i) return '';
+  const u = user(i.by), [l, c] = INV[i.status], acts = invActions(i), m = member(i.memberId);
+  return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
+  <div class="stack" style="gap:4px"><p class="eyebrow">Invoice</p><h2 class="mono">${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
+  <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}</dl>
+    <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span><span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
+  ${attCheck(i)}
+  <section class="panel"><h3>Pay to</h3><p>${esc(can.seeKyc(myRole()) || i.by === S.session ? bankLine(u) : 'Visible to Accounts, the CFO and Commercial Head')}</p></section>
+  ${acts.length ? `<div class="row">${acts.map(([a, l, cls]) => `<button class="btn ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</div>` : ''}
+  <section class="panel"><h3>Trail</h3><ul class="feed">${S.log.filter(x => x.invoiceId === i.id || (x.text || '').includes(i.no)).map(x => `<li><time>${fmtT(x.at)}</time><span><b>${esc(user(x.by)?.name || '')}</b> ${esc(lower(x.text))}</span></li>`).join('') || '<li><span class="muted">No steps yet.</span></li>'}</ul></section>`;
+}
+
+function opt(list, sel){ return list.map(v => Array.isArray(v) ? `<option value="${esc(v[0])}" ${v[0] === sel ? 'selected' : ''}>${esc(v[1])}</option>` : `<option ${v === sel ? 'selected' : ''}>${esc(v)}</option>`).join(''); }
+function modalBody(){
+  const M = U.modal, r = myRole();
+  const head = (t, s = '') => `<div class="spread"><div class="stack" style="gap:4px"><h2>${t}</h2>${s ? `<p class="muted small">${s}</p>` : ''}</div><button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button></div>`;
+  if (M.type === 'onboard' || M.type === 'deal'){
+    const m = M.type === 'deal' ? member(M.id) : {dept:'Camera', job:'', unit:'day', rate:'', joining:today(), end:'', tds:'194C-1', terms:30, role:'crew'};
+    const dept = M.dept || m.dept || 'Camera', roleOpts = Object.entries(ROLES).filter(([k]) => isOwner(r) || ['crew','vendor','hod'].includes(k)).map(([k, v]) => [k, v.label]);
+    return `${head(M.type === 'deal' ? `Deal · ${esc(user(m.userId).name)}` : 'Onboard a person', M.type === 'deal' ? 'Every change is saved to the activity log and can be undone.' : 'They get an invite to sign in, fill their details and upload documents.')}
+    <form class="stack" data-form="${M.type}">
+      ${M.type === 'onboard' ? `<div class="grid2"><label class="f">Full name<input type="text" id="ob-name" required></label><label class="f">Mobile<input type="tel" id="ob-phone" placeholder="98200 00000"></label></div>
+      <div class="grid2"><label class="f">Email<input type="email" id="ob-email"></label><label class="f">Engaged as<select id="ob-kind"><option value="crew">Crew</option><option value="cast">Cast / artist</option><option value="vendor">Vendor / service</option></select></label></div>` : ''}
+      <div class="grid2"><label class="f">Department<select id="ob-dept" data-change="ob-dept">${opt(Object.keys(DEPTS), dept)}</select></label>
+      <label class="f">${dept === 'Vendors & Services' ? 'Service' : 'Job'}<select id="ob-job">${opt(DEPTS[dept], m.job)}</select></label></div>
+      <div class="grid3"><label class="f">Rate (₹)<input type="number" id="ob-rate" min="0" step="100" value="${esc(m.rate || '')}" class="mono"></label>
+      <label class="f">Per<select id="ob-unit">${opt(Object.entries(UNITS), m.unit)}</select></label><label class="f">Payment terms<select id="ob-terms">${opt([[7, '7 days'], [15, '15 days'], [30, '30 days'], [45, '45 days']].map(([a, b]) => [String(a), b]), String(m.terms))}</select></label></div>
+      <div class="grid2"><label class="f">Joining date<input type="date" id="ob-join" value="${esc(m.joining)}"></label><label class="f">End date <span class="hint">optional</span><input type="date" id="ob-end" value="${esc(m.end)}"></label></div>
+      <div class="grid2"><label class="f">TDS section<select id="ob-tds">${opt(Object.entries(TDS).map(([k, v]) => [k, v.label]), m.tds)}</select></label><label class="f">App access<select id="ob-role">${opt(roleOpts, m.role)}</select></label></div>
+      <p class="err" id="ob-err"></p><div class="row"><button class="btn primary" type="submit">${M.type === 'deal' ? 'Save deal' : 'Create invite'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'invite'){
+    const u = user(M.userId), p = proj(U.pid);
+    const msg = `Hi ${u.name.split(' ')[0]}, you're onboarded on ${p.name} in CrewDesk.\nSign in: crewdesk-production.vercel.app\nUsername: ${u.username}\nTemporary password: ${u.password}\nInvite code: ${p.invite}\nPlease add your bank details, masked Aadhaar and PAN card, then sign your agreement.`;
+    return `${head('Invite created', 'Send this on WhatsApp or email. In the live app this goes out automatically.')}
+      <div class="copybox"><pre id="invite-text">${esc(msg)}</pre></div><div class="row"><button class="btn primary" data-act="copy" data-text="${esc(msg)}">${icon('copy', 16)}Copy message</button><button class="btn ghost" data-act="close-modal">Done</button></div>`;
+  }
+  if (M.type === 'raise'){
+    const m = memberIn(U.pid, S.session), u = me(), c = co(), w = (new Date().getDay() + 6) % 7, f = isoD(dayOff(-w - 7)), t = isoD(dayOff(-w - 2)), n = attIn(U.pid, S.session, f, t);
+    return `${head('Raise invoice', `${esc(m.job)} · ${rateText(m)} · TDS ${esc(TDS[m.tds].label)}`)}
+    <div class="calc" style="grid-template-columns:minmax(0,1fr)"><span class="small"><b>Bill to</b> ${esc(c.legal)}${c.gstin ? ` · GSTIN <span class="mono">${esc(c.gstin)}</span>` : ''}<br><span class="muted">${esc(c.address)}</span></span></div>
+    <form class="stack" data-form="raise" data-input="calc">
+      <div class="grid2"><label class="f">From<input type="date" id="rv-from" value="${f}"></label><label class="f">To<input type="date" id="rv-to" value="${t}"></label></div>
+      <div class="grid2"><label class="f">Your invoice number<input type="text" id="rv-no" required class="mono"></label><label class="f">${QTY[m.unit]}${m.unit === 'day' ? ' <span class="hint">filled from gate check-ins</span>' : ''}<input type="number" id="rv-qty" min="0.5" step="0.5" value="${m.unit === 'day' ? (n || 1) : 1}" class="mono"></label></div>
+      <p class="small" id="rv-att"></p>
+      <div class="grid2"><label class="f">GST<select id="rv-gst" ${u.gstin ? '' : 'disabled'}>${opt([['0', 'No GST'], ['5', '5%'], ['12', '12%'], ['18', '18%']], u.gstin ? '18' : '0')}</select>${u.gstin ? '' : '<span class="hint small">Add a GSTIN to your profile to charge GST</span>'}</label><label class="f">Description<input type="text" id="rv-desc" placeholder="${esc(m.job)}, shoot days"></label></div>
+      <div class="calc" id="rv-calc"></div>
+      <p class="err" id="rv-err"></p><div class="row"><button class="btn primary" type="submit">Submit invoice</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'pay' || M.type === 'reject'){
+    const i = S.invoices.find(x => x.id === M.id);
+    return `${head(M.type === 'pay' ? `Mark ${esc(i.no)} paid` : `Reject ${esc(i.no)}`, `${esc(user(i.by).name)} · ${inr(i.payable)}`)}
+    <form class="stack" data-form="${M.type}">${M.type === 'pay' ? `<p>Pay <b>${inr(i.payable)}</b> to ${esc(bankLine(user(i.by)))}</p><label class="f">Bank reference (UTR)<input type="text" id="md-v" class="mono" required></label>` : '<label class="f">Reason <span class="hint">the person sees this and can resubmit</span><textarea id="md-v" rows="3" required></textarea></label>'}
+    <p class="err" id="md-err"></p><div class="row"><button class="btn primary" type="submit">${M.type === 'pay' ? 'Mark paid' : 'Reject invoice'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'project'){
+    const c = co();
+    return `${head('New production', 'You become its owner. A production code is generated for the crew to join with.')}
+    <div class="calc" style="grid-template-columns:minmax(0,1fr)"><span class="small"><b>Billed by</b> ${esc(c.legal)}${c.gstin ? ` · GSTIN <span class="mono">${esc(c.gstin)}</span>` : ''}<br><span class="muted">From Company details, entered once.</span></span></div>
+    <form class="stack" data-form="project"><label class="f">Production name<input type="text" id="np-name" required></label>
+      <div class="grid2"><label class="f">Format<select id="np-format">${opt(FORMATS, FORMATS[0])}</select></label><label class="f">Channel / platform<input type="text" id="np-plat" placeholder="e.g. Hindi GEC · Mon–Sat 9 pm"></label></div>
+      <div class="grid3"><label class="f">Episodes planned<input type="number" id="np-eps" min="1" value="200" class="mono"></label><label class="f">Status<select id="np-status">${opt(['Pre-production','Shooting','Post-production'], 'Pre-production')}</select></label><label class="f">Start date<input type="date" id="np-start" value="${today()}"></label></div>
+      <label class="f">Shoot base<input type="text" id="np-loc" placeholder="e.g. Umargam · Floor 3"></label>
+      <p class="err" id="np-err"></p><div class="row"><button class="btn primary" type="submit">Create production</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'profile'){
+    const u = me();
+    return `${head('My profile & documents', 'Used on every production you join, so you fill it once.')}${profileForm(u)}<hr style="border:0;border-top:1px solid var(--line);width:100%">${docsForm(u)}`;
+  }
+  if (M.type === 'plan'){
+    const p = proj(U.pid), ds = daysOf(p.id), last = ds[ds.length - 1], nextEp = Math.max(projDone(p), ...ds.filter(d => d.epTo && d.status !== 'cancelled').map(d => d.epTo)) + 1;
+    const per = p.format.startsWith('Long') ? 1 : p.format === 'Micro-drama' ? 2 : 0;
+    return `${head('Plan shoot days', 'Adds scheduled days. Days already on the calendar are left as they are.')}
+    <form class="stack" data-form="plan"><div class="grid2"><label class="f">From<input type="date" id="pl-from" value="${M.date || today()}"></label><label class="f">To<input type="date" id="pl-to" value="${M.date || isoD(dayOff(13))}"></label></div>
+      <label class="row small" style="gap:8px"><input type="checkbox" id="pl-sun" checked> Skip Sundays</label>
+      <div class="grid3"><label class="f">Call time<input type="time" id="pl-call" value="${last?.call || '08:00'}"></label><label class="f">Expected wrap<input type="time" id="pl-wrap" value="${last?.wrap || '20:00'}"></label><label class="f">Episodes per day<input type="number" id="pl-eps" min="0" step="1" value="${per}" class="mono"></label></div>
+      <div class="grid2"><label class="f">Location<input type="text" id="pl-loc" value="${esc(last?.location || p.location || '')}"></label><label class="f">Starting episode<input type="number" id="pl-ep" min="1" value="${nextEp}" class="mono"></label></div>
+      <p class="err" id="pl-err"></p><div class="row"><button class="btn primary" type="submit">Add to schedule</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'payrun'){
+    const list = S.invoices.filter(i => U.sel.includes(i.id) && i.status === 'approved'), c = co(), tot = list.reduce((s, i) => s + i.payable, 0);
+    const cell = v => /[",]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+    const csv = ['Beneficiary name,Account number,IFSC,Amount,Narration', ...list.map(i => { const u = user(i.by); return [u.bank.holder, u.bank.acct, u.bank.ifsc, i.payable.toFixed(2), `${proj(i.pid).name} ${i.no}`].map(cell).join(','); })].join('\n');
+    return `${head('Payment run', `${list.length} payment${list.length === 1 ? '' : 's'} · ${inr(tot)} from ${esc(c.bank?.name || '')} ${mask(c.bank?.acct)}`)}
+    <p class="small muted">Upload this in your bank’s bulk-payment screen, then enter the reference the bank gives for the batch. Column order differs between banks; the live version matches yours.</p>
+    <pre class="xml" style="white-space:pre-wrap">${esc(csv)}</pre><button class="btn sm" data-act="copy" data-text="${esc(csv)}" style="justify-self:start">${icon('copy', 14)}Copy bank file</button>
+    <form class="stack" data-form="payrun"><label class="f">Bank batch reference / UTR<input type="text" id="md-v" class="mono"></label><p class="err" id="md-err"></p>
+      <div class="row"><button class="btn primary" type="submit">Mark ${list.length} paid</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'tally'){
+    const {ledgers, vouchers, pur, pay} = tallyXML(U.pid);
+    return `${head('Tally import files', `${pur.length} purchase and ${pay.length} payment vouchers for ${esc(co().tally?.company || '')}`)}
+    <p class="small">In TallyPrime: <b>Gateway of Tally → Import → Masters</b> with file 1, then <b>Import → Transactions</b> with file 2. Save each as a .xml file first.</p>
+    <div class="stack" style="gap:6px"><div class="spread"><b class="small">1 · Ledgers</b><button class="btn sm" data-act="copy" data-text="${esc(ledgers)}">${icon('copy', 14)}Copy</button></div><pre class="xml">${esc(ledgers)}</pre></div>
+    <div class="stack" style="gap:6px"><div class="spread"><b class="small">2 · Vouchers</b><button class="btn sm" data-act="copy" data-text="${esc(vouchers)}">${icon('copy', 14)}Copy</button></div><pre class="xml">${esc(vouchers)}</pre></div>
+    <div class="row"><button class="btn primary" data-act="tally-mark">Mark as imported</button><button class="btn ghost" data-act="close-modal">Close</button></div>`;
+  }
+  if (M.type === 'share'){
+    const p = proj(U.pid), u = me();
+    const msg = `${p.name} · crew onboarding\n\n1. Open ${DEMO_URL} and create your account\n2. Enter the production code: ${fmtCode(p.invite)}\n3. Add your bank details, PAN, masked Aadhaar and a photo\n4. Sign your agreement in the app\n\nAfter that you can see the shoot schedule and raise invoices there.\nQuestions: ${u.name}${u.phone ? ', ' + u.phone : ''}`;
+    return `${head('Share the production code', 'Send this on the crew WhatsApp group or by email.')}
+    <div class="codegen" style="text-align:center;padding:8px 0"><span class="code">${fmtCode(p.invite)}</span></div>
+    <div class="copybox"><pre>${esc(msg)}</pre></div>
+    <div class="row"><button class="btn primary" data-act="copy" data-text="${esc(msg)}">${icon('copy', 16)}Copy message</button><a class="btn" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">Open WhatsApp</a><button class="btn ghost" data-act="close-modal">Done</button></div>
+    <p class="small muted">If the WhatsApp button does nothing here, copy the message and paste it into WhatsApp.</p>`;
+  }
+  if (M.type === 'excel'){
+    const sheets = workbookData(U.pid);
+    return `${head('Excel report', 'This preview blocks file downloads. Copy each sheet and paste it into Excel, or open the hosted demo, where the .xlsx file downloads in one tap.')}
+    <a class="btn primary" href="${DEMO_URL}" target="_blank" rel="noopener" style="justify-self:start">${icon('down', 16)}Open the hosted demo</a>
+    <ul class="feed">${Object.entries(sheets).map(([n, rows]) => `<li><span class="mono small muted">${rows.length} rows</span><span class="spread"><b>${esc(n)}</b><button class="btn sm" data-act="copy" data-text="${esc(tsv(rows))}">${icon('copy', 14)}Copy for Excel</button></span></li>`).join('')}</ul>
+    <p class="small muted">The hosted demo keeps its own sample data, separate from this preview.</p>`;
+  }
+  return '';
+}
+
+/* ============================================================ guide bot */
+const QUICK = ['What should I do next?','How do crew join a production?','Which documents do I need?','How are invoices approved?','How does Tally sync work?','Where is the monthly report?','How do I get an Excel file?','Can a change be undone?'];
+function renderChat(){
+  const box = $('#chatbox');
+  if (!me()){ box.innerHTML = ''; return; }
+  if (!U.chat){ box.innerHTML = `<button class="fab" data-act="chat">${icon('chat')}Guide</button>`; return; }
+  if (!U.chatLog.length) U.chatLog.push({from:'bot', html:`Hi ${esc(me().name.split(' ')[0])}. I can walk you through onboarding, documents, agreements, invoices and payments. Ask in your own words or tap a question.`});
+  box.innerHTML = `<section class="chat" aria-label="Guide"><header><div><b>CrewDesk guide</b><p class="small muted">Scripted demo · answers from the app’s own rules</p></div><button class="btn ghost sm" data-act="chat" aria-label="Close guide">${icon('x', 16)}</button></header>
+    <div class="msgs" id="msgs">${U.chatLog.map(m => `<div class="msg ${m.from}">${m.html}</div>`).join('')}</div>
+    <div class="quick">${QUICK.map(q => `<button data-act="ask" data-text="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+    <form data-form="chat"><input type="text" id="chat-in" placeholder="Ask a question" aria-label="Your question" autocomplete="off"><button class="btn primary" type="submit" aria-label="Send">${icon('send', 16)}</button></form></section>`;
+  const msgs = $('#msgs'); msgs.scrollTop = msgs.scrollHeight;
+}
+function ask(q){
+  U.chatLog.push({from:'me', html:esc(q)});
+  U.chatLog.push({from:'bot', html:answer(q)});
+  renderChat(); $('#chat-in')?.focus();
+}
+function answer(q){
+  const t = q.toLowerCase(), has = (...w) => w.some(x => t.includes(x)), r = U.pid ? myRole() : me().title, p = U.pid ? proj(U.pid) : null;
+  if (has('next','what should','what do i','start','pending','todo','to do')){
+    if (!p) return 'Open a production first: tap its card on <b>Your productions</b>. If you don’t have one yet, enter the invite code the production office sent you.';
+    const td = todos(U.pid, S.session);
+    if (!td.length) return `Nothing is waiting on you in <b>${esc(p.name)}</b> right now.`;
+    return `On <b>${esc(p.name)}</b>, ${td.length === 1 ? 'one thing is' : td.length + ' things are'} waiting on you:<ol>${td.slice(0, 5).map(x => `<li>${esc(x.t)}</li>`).join('')}</ol>${isStaff(r) ? 'They’re listed on your Dashboard with a button for each.' : 'Open <b>My setup</b> and follow the highlighted step.'}`;
+  }
+  if (has('code','join')) return 'Each production has its own <b>production code</b>, like SATH-7Q4K. The Line Producer or Head of Production shares it from <b>Home → Share with crew</b>, and can generate a new one at any time (the old one then stops working). Crew create an account, enter the code, and their onboarding starts.';
+  if (has('my photo','profile photo','picture','selfie')) return 'Open <b>My setup → Profile & bank details</b>, or tap your name at the top and choose <b>My profile</b>, then <b>Upload photo</b>. It shows on your Crew ID and in the crew list.';
+  if (has('excel','download','export','spreadsheet','sheet')) return 'Tap <b>Excel report</b> on Home or Reports. The file has a summary of the month plus sheets for cost by department, shoot days, crew, invoices and payments, and for finance the TDS and GST registers.';
+  if (has('schedule','shoot day','shooting','calendar','call time')) return 'Open <b>Shoot schedule</b>. Each day shows the episodes, call time and how many people checked in. The Line Producer, CFO or Commercial Head can plan a block of days (Sundays skipped), mark a day shot or cancelled, and check crew in with their Crew ID at the gate. Check-ins fill the days on everyone’s invoices.';
+  if (has('tally','xml','voucher','sync','accounting')) return 'Approved invoices become Purchase vouchers and payments become Payment vouchers, with the expense, GST (CGST+SGST or IGST by state), TDS, party and bank ledgers filled in. In <b>Payments & Tally → Tally sync</b>, generate the files and import them in TallyPrime. In the live version a small connector on the accounts PC sends them automatically every few minutes.';
+  if (has('report','month','expense','cost','spend','budget','dashboard')) return '<b>Reports</b> shows any month: shoot days scheduled vs shot, episodes, cost by department, work done but not invoiced yet, payments made and anything overdue, plus cost per shoot day and per episode.';
+  if (has('company','tan','bill to')) return 'Company details are entered once by the CFO or Commercial Head: legal name, PAN, TAN, GSTIN, address, signatory, the bank you pay from and the Tally names. Every agreement, invoice and Tally export uses them.';
+  if (has('payment run','bank file','26q','gstr','register')) return 'In <b>Payments & Tally</b>, tick approved invoices and create one payment run: you get the bank’s bulk-payment file and enter the bank’s reference once for all of them. The TDS and GST tabs list each month’s deductions and input tax, ready for challans, Form 26Q and GSTR-2B matching.';
+  if (has('onboard','invite','add someone','add a person','new crew','hire','add crew')){
+    if (U.pid && !can.onboard(r)) return 'Onboarding is done by the CFO, Commercial Head or Line Producer. Ask them to add you, or share the production’s invite code with the person.';
+    return 'To onboard someone:<ol><li>Go to <b>People</b> and tap <b>Onboard person</b>.</li><li>Pick the department and job (vendors pick a service), then set the rate, per day or per episode, the joining date and the TDS section.</li><li>Copy the invite message and send it on WhatsApp.</li><li>They fill their bank details, upload a masked Aadhaar and PAN card, and you send the agreement.</li><li>After they sign, the CFO or Commercial Head approves it.</li></ol>';
+  }
+  if (has('aadhaar','adhar','aadhar','pan','document','kyc','upload','photo')) return 'You need two photos:<ul><li><b>Masked Aadhaar</b>: download it from the myAadhaar site with “masked Aadhaar” ticked, so only the last 4 digits show. Don’t upload a full Aadhaar.</li><li><b>PAN card</b>: a clear photo of the front.</li></ul>Then type the last 4 Aadhaar digits, tick the consent box and save. Find this under <b>My setup → Aadhaar & PAN card</b>.';
+  if (has('agreement','contract','sign','signature')) return 'The production sends your agreement once your deal, profile and documents are complete. Open <b>My setup → Agreement</b>, read it, type your full name and draw your signature. The CFO or Commercial Head then approves it, and your Crew ID appears.';
+  if (has('tds','tax','gst','194')) return 'TDS is worked out on the fee <b>before GST</b>:<ul><li>194C contractor: 1% for an individual, 2% for a firm or company.</li><li>194J professional or creative fees: 10%. Technical services: 2%.</li></ul>GST (5–18%) is added only if you have a GSTIN. Payable = fee + GST − TDS. Accounts confirms the section in your deal.';
+  if (has('invoice','bill','approve','approval')) return 'Invoices go through three steps:<ol><li>The <b>HOD</b> of your department, or the Line Producer, checks the days.</li><li>The <b>CFO or Commercial Head</b> gives final approval.</li><li><b>Accounts</b> pays and records the bank reference (UTR).</li></ol>Nobody can approve their own invoice. If one is rejected, the reason is shown so you can fix it and resubmit.';
+  if (has('paid','payment','money','when will','salary','fees')) return 'You’re paid within the payment terms in your deal (usually 30 days) after the invoice is approved. When Accounts pays, the UTR shows on your invoice so you can match it with your bank statement.';
+  if (has('bank','privacy','who can see','visible','secure','data')) return 'Your PAN, Aadhaar copy and bank details are visible only to you, the <b>CFO</b>, the <b>Commercial Head</b> and <b>Accounts</b>. Other crew and HODs see only your name, job and a masked account number.';
+  if (has('undo','revert','history','back track','backtrack','log','audit','changed')) return 'Every action is recorded in the <b>Activity log</b>: who did it, when, and the old and new values. The CFO or Commercial Head can undo a deal change (rate, dates, TDS) with one tap, and the undo is logged too.';
+  if (has('role','access','cfo','commercial','owner','permission')) return 'Owner access belongs to the <b>CFO</b> and the <b>Commercial Head</b>: they set deals, approve agreements and give final invoice approval. The Line Producer onboards people and sends agreements. HODs approve their own department’s invoices. See <b>Roles & access</b> for the full table.';
+  if (has('project','production','show','serial','episode','create')) return isOwner(me().title) ? 'Tap <b>New production</b> on Your productions. Pick the format (long-format fiction daily or weekly, web series, micro-drama and others), the episodes planned and the paying company. You become its owner and get an invite code.' : 'Productions are created by the CFO or Commercial Head. To join one, enter its invite code on <b>Your productions</b>.';
+  if (has('hi','hello','hey','namaste')) return 'Hello! Ask me about onboarding, documents, agreements, invoices, TDS or payments.';
+  return 'I don’t have an answer for that yet. I can help with: onboarding someone, Aadhaar and PAN uploads, agreements, invoices and approvals, TDS and GST, payments, privacy, roles, and undoing changes.';
+}
+
+/* ============================================================ actions */
+function toast(t){ const el = $('#toast'); el.innerHTML = `<div class="toast">${esc(t)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(() => el.innerHTML = '', 3200); }
+function err(id, t){ const el = document.getElementById(id); if (el) el.textContent = t; return false; }
+const val = id => (document.getElementById(id)?.value || '').trim();
+function done(msg){ save(); render(); if (msg) toast(msg); }
+
+const ACT = {
+  auth: el => { U.auth = el.dataset.id; render(); },
+  'demo-login': el => { const u = S.users.find(x => x.username === el.dataset.id); if (!u) return; S.session = u.id; U.view = 'projects'; U.pid = null; U.chatLog = []; done(`Signed in as ${u.name}`); },
+  logout: () => { S.session = null; U.menu = false; U.chat = false; U.chatLog = []; U.pid = null; U.drawer = null; U.modal = null; done('Signed out'); },
+  reset: () => { if (U.confirmReset){ S = seed(); U.confirmReset = false; Object.assign(U, {view:'projects', pid:null, drawer:null, modal:null, menu:false, chatLog:[]}); done('Demo data reset'); } else { U.confirmReset = true; toast('Tap “Reset demo data” again to confirm. This wipes changes made in this browser.'); setTimeout(() => U.confirmReset = false, 5000); } },
+  menu: () => { U.menu = !U.menu; render(); },
+  'go-projects': () => { U.pid = null; U.view = 'projects'; U.menu = false; U.drawer = null; render(); },
+  'open-project': el => { U.pid = el.dataset.id; U.view = 'home'; render(); },
+  go: el => { U.view = el.dataset.id; U.drawer = null; U.modal = null; render(); window.scrollTo(0, 0); },
+  'new-project': () => { U.modal = {type:'project'}; renderLayer(); },
+  'my-profile': () => { U.menu = false; U.modal = {type:'profile'}; render(); },
+  onboard: () => { U.modal = {type:'onboard'}; renderLayer(); },
+  'edit-deal': el => { U.modal = {type:'deal', id:el.dataset.id}; renderLayer(); },
+  'open-person': el => { U.drawer = {type:'person', id:el.dataset.id}; renderLayer(); setupSig(); },
+  'open-invoice': el => { U.drawer = {type:'invoice', id:el.dataset.id}; renderLayer(); },
+  close: () => { U.drawer = null; renderLayer(); },
+  'close-modal': () => { U.modal = null; renderLayer(); },
+  pf: el => { U.pf = el.dataset.id; render(); },
+  invf: el => { U.invf = el.dataset.id; render(); },
+  logf: el => { U.logf = el.dataset.id; render(); },
+  raise: () => { U.modal = {type:'raise'}; U.qtyTouched = false; renderLayer(); calcInv(); },
+  'clear-sig': () => setupSig(),
+  chat: () => { U.chat = !U.chat; renderChat(); if (U.chat) $('#chat-in')?.focus(); },
+  ask: el => ask(el.dataset.text),
+  copy: el => { const t = el.dataset.text; const ok = () => toast('Copied'); try { navigator.clipboard.writeText(t).then(ok, () => toast('Couldn’t copy; select the text and copy it yourself.')); } catch { toast('Couldn’t copy; select the text and copy it yourself.'); } },
+  nudge: el => { const m = member(el.dataset.id); log(U.pid, 'onboard', `Sent a reminder to ${user(m.userId).name}`, {memberId:m.id}); done(`Reminder sent to ${user(m.userId).name} (demo: nothing actually goes out)`); },
+  'send-ag': el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
+    m.ag = {status:'sent', sentAt:Date.now(), text:agText(m)}; log(U.pid, 'agreement', `Sent the agreement to ${user(m.userId).name}`, {memberId:m.id}); done(`Agreement sent to ${user(m.userId).name}`); },
+  countersign: el => { const m = member(el.dataset.id); if (m.ag?.status !== 'signed' || !can.countersign(myRole())) return;
+    Object.assign(m.ag, {status:'countersigned', counterAt:Date.now(), counterBy:S.session}); log(U.pid, 'agreement', `Approved ${user(m.userId).name}’s agreement`, {memberId:m.id}); done(`${user(m.userId).name} is onboarded`); },
+  'hod-ok': el => invStep(el.dataset.id, 'submitted', 'hod_ok', i => `HOD step approved ${i.no} (${user(i.by).name})`),
+  'final-ok': el => invStep(el.dataset.id, 'hod_ok', 'approved', i => `Approved ${i.no} for payment`),
+  pay: el => { U.modal = {type:'pay', id:el.dataset.id}; renderLayer(); },
+  reject: el => { U.modal = {type:'reject', id:el.dataset.id}; renderLayer(); },
+  month: el => { const n = +el.dataset.id; U.month = n ? addYm(U.month || ymOf(today()), n) : ymOf(today()); render(); },
+  'open-day': el => { U.drawer = {type:'day', id:el.dataset.id}; renderLayer(); },
+  plan: el => { U.modal = {type:'plan', date:el.dataset.id || ''}; renderLayer(); },
+  'day-status': el => { const d = S.days.find(x => x.id === el.dataset.id), st = el.dataset.s; if (!d || !can.schedule(myRole())) return;
+    if (st === 'shot' && d.date > today()) return toast('A day can be marked shot only on or after its date.');
+    d.status = st; log(U.pid, 'schedule', `Marked ${fmtD(d.date)} as ${DAY[st][0].toLowerCase()}`); done(`${fmtD(d.date)}: ${DAY[st][0]}`); },
+  uncheck: el => { const d = S.days.find(x => x.id === el.dataset.id), u = user(el.dataset.u); d.att = d.att.filter(x => x !== el.dataset.u);
+    log(U.pid, 'schedule', `Removed ${u.name}’s check-in for ${fmtD(d.date)}`); done(`${u.name} removed from ${fmtD(d.date)}`); },
+  ftab: el => { U.ftab = el.dataset.id; render(); },
+  payrun: () => { if (U.sel.length){ U.modal = {type:'payrun'}; renderLayer(); } },
+  'tally-preview': () => { U.modal = {type:'tally'}; renderLayer(); },
+  'tally-mark': () => { const {pur, pay} = tallyPending(U.pid); if (!pur.length && !pay.length) return;
+    const id = 'TX-' + String(S.exports.length + 1).padStart(3, '0');
+    pur.forEach(i => i.tp = id); pay.forEach(i => i.tpay = id);
+    S.exports.unshift({id, pid:U.pid, at:Date.now(), by:S.session, purchases:pur.length, payments:pay.length, value:pur.reduce((s, i) => s + i.amount + i.gst, 0)});
+    log(U.pid, 'finance', `Sent ${pur.length} purchase and ${pay.length} payment vouchers to Tally (${id})`); U.modal = null; done(`${id}: ${pur.length + pay.length} vouchers marked as in Tally`); },
+  'go-tally': () => { U.view = 'finance'; U.ftab = 'tally'; U.drawer = null; render(); },
+  'go-company': () => { U.menu = false; U.view = 'company'; U.drawer = null; U.coEdit = false; render(); },
+  'co-edit': () => { U.coEdit = true; render(); },
+  'co-cancel': () => { U.coEdit = false; render(); },
+  'share-code': () => { U.modal = {type:'share'}; renderLayer(); },
+  'new-code': () => { const p = proj(U.pid); if (!can.code(myRole())) return;
+    if (!U.confirmCode){ U.confirmCode = true; setTimeout(() => U.confirmCode = false, 5000); return toast('Tap “Generate new code” again to confirm. The current code will stop working.'); }
+    U.confirmCode = false; const old = p.invite; p.invite = genCode(p.name); p.codeAt = Date.now(); p.codeBy = S.session;
+    log(U.pid, 'project', `Generated a new production code ${fmtCode(p.invite)}; ${fmtCode(old)} no longer works`); done(`New code ${fmtCode(p.invite)}. Share it with the crew.`); },
+  excel: () => exportExcel(),
+  'reset-empty': () => { if (U.confirmEmpty){ S = seed(true); U.confirmEmpty = false; Object.assign(U, {view:'projects', pid:null, drawer:null, modal:null, menu:false, chatLog:[]}); done('Started empty. Sign in as Ritika (CFO) or Fowzan (Commercial Head) to set up the company.'); }
+    else { U.confirmEmpty = true; toast('Tap “Start empty” again to confirm. This removes the sample productions in this browser.'); setTimeout(() => U.confirmEmpty = false, 5000); } },
+  revert: el => { const l = S.log.find(x => x.id === el.dataset.id), m = member(l.memberId); if (!m || m[l.field] !== l.after) return toast('This value has changed since; undo the later change first.');
+    m[l.field] = l.before; l.reverted = true; log(U.pid, 'revert', `Undid change to ${user(m.userId).name}’s ${FIELD[l.field].toLowerCase()}`, {memberId:m.id, field:l.field, before:l.after, after:l.before}); done('Change undone and logged'); },
+};
+function invStep(id, from, to, text){
+  const i = S.invoices.find(x => x.id === id);
+  if (!i || i.status !== from || !invActions(i).length) return toast('This invoice has already moved on.');
+  i.status = to; if (to === 'approved') i.approvedAt = Date.now(); log(U.pid, 'invoice', text(i), {invoiceId:i.id}); done(to === 'approved' ? `${i.no} approved; Accounts can pay it now` : `${i.no} sent on for final approval`);
+}
+function calcInv(){
+  const box = $('#rv-calc'); if (!box) return;
+  const m = memberIn(U.pid, S.session), qty = +val('rv-qty') || 0, g = +val('rv-gst') || 0;
+  const amount = Math.round(qty * m.rate), gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
+  box.innerHTML = `<span>${qty} × ${inr(m.rate)}</span><span class="num">${inr(amount)}</span><span>GST ${g}%</span><span class="num">${inr(gst)}</span><span>TDS ${TDS[m.tds].rate}% on fee</span><span class="num">−${inr(tds)}</span><span class="tot">You receive</span><span class="num tot">${inr(amount + gst - tds)}</span>`;
+  const a = $('#rv-att');
+  if (a && m.unit === 'day'){ const n = attIn(U.pid, S.session, val('rv-from'), val('rv-to'));
+    a.innerHTML = qty > n ? `<span class="flag">Gate check-ins show ${n} day${n === 1 ? '' : 's'} for these dates.</span> Your HOD will see the difference.` : `<span style="color:var(--good)">✓ Matches gate check-ins: ${n} day${n === 1 ? '' : 's'}.</span>`; }
+}
+
+const FORMS = {
+  login: () => { const id = val('li-user').toLowerCase(), pw = $('#li-pass').value, u = S.users.find(x => x.username === id || x.email.toLowerCase() === id);
+    if (!u || u.password !== pw) return err('li-err', 'That username and password don’t match. Demo accounts use the password demo123.');
+    S.session = u.id; U.view = 'projects'; U.pid = null; done(`Welcome, ${u.name}`); },
+  signup: () => { const name = val('su-name'), un = val('su-user').toLowerCase(), pw = $('#su-pass').value;
+    if (name.length < 2) return err('su-err', 'Enter your full name.');
+    if (!/^[a-z0-9_.]{3,30}$/.test(un)) return err('su-err', 'Usernames are 3–30 characters: a–z, 0–9, dot or underscore.');
+    if (S.users.some(x => x.username === un)) return err('su-err', 'That username is taken. Try another.');
+    if (pw.length < 6) return err('su-err', 'Use a password of at least 6 characters.');
+    const u = {id:uid('u'), username:un, name, title:'crew', password:pw, phone:val('su-phone'), email:`${un}@example.in`, legal:'', pan:'', gstin:'', address:'', bank:{holder:'',name:'',acct:'',ifsc:''}, emergency:'', aadhaar4:'', docs:{}, consent:false};
+    S.users.push(u); S.session = u.id; U.view = 'projects'; done('Account created. Now join your production with its invite code.'); },
+  join: () => { const code = val('join-code').toUpperCase().replace(/[^A-Z0-9]/g, ''), p = S.projects.find(x => x.invite === code);
+    if (!p) return err('join-err', 'No production has that code. Check it with the production office.');
+    if (memberIn(p.id, S.session)) { U.pid = p.id; U.view = 'home'; return done(`You’re already on ${p.name}`); }
+    const kind = val('join-kind');
+    S.members.push({id:uid('m'), pid:p.id, userId:S.session, role:kind === 'vendor' ? 'vendor' : 'crew', dept:'', job:'', rate:null, unit:'day', joining:'', end:'', tds:kind === 'vendor' ? '194C-2' : '194C-1', terms:30, kind, ag:{status:'none'}, code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:Date.now()});
+    log(p.id, 'onboard', `Joined with the invite code as ${kind === 'vendor' ? 'a vendor' : 'crew'}`); U.pid = p.id; U.view = 'home'; done(`You joined ${p.name}`); },
+  project: () => { const name = val('np-name');
+    if (!S.company) return err('np-err', 'Set up the company details first.');
+    if (!name) return err('np-err', 'Give the production a name.');
+    const id = uid('p'), invite = genCode(name);
+    S.projects.push({id, name, format:val('np-format'), platform:val('np-plat') || '—', status:val('np-status'), planned:+val('np-eps') || 1, done:0, block:'Prep', location:val('np-loc') || '—', city:'Mumbai', start:val('np-start'), invite, codeAt:Date.now(), codeBy:S.session, budget:{}});
+    S.members.push({id:uid('m'), pid:id, userId:S.session, role:me().title, dept:'Production', job:ROLES[me().title].label, rate:null, unit:'month', joining:val('np-start'), end:'', tds:'none', terms:30, kind:'crew', ag:{status:'countersigned', counterAt:Date.now(), counterBy:S.session}, code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:Date.now()});
+    log(id, 'project', `Created the production ${name} · production code ${fmtCode(invite)}`); U.modal = null; U.pid = id; U.view = 'home'; done(`${name} created · production code ${fmtCode(invite)}`); },
+  onboard: () => { const name = val('ob-name'), rate = +val('ob-rate'), joining = val('ob-join'), role = val('ob-role'), kind = val('ob-kind');
+    if (name.length < 2) return err('ob-err', 'Enter the person’s full name.'); if (!(rate > 0)) return err('ob-err', 'Enter the rate in rupees.'); if (!joining) return err('ob-err', 'Pick a joining date.');
+    if (val('ob-end') && val('ob-end') < joining) return err('ob-err', 'The end date is before the joining date.');
+    let base = name.toLowerCase().replace(/[^a-z]/g, '').slice(0, 12) || 'crew', un = base, n = 1; while (S.users.some(x => x.username === un)) un = base + (++n);
+    const u = {id:uid('u'), username:un, name, title:role === 'vendor' ? 'vendor' : 'crew', password:Math.random().toString(36).slice(2, 8), phone:val('ob-phone'), email:val('ob-email') || `${un}@example.in`, legal:'', pan:'', gstin:'', address:'', bank:{holder:'',name:'',acct:'',ifsc:''}, emergency:'', aadhaar4:'', docs:{}, consent:false};
+    const m = {id:uid('m'), pid:U.pid, userId:u.id, role, dept:val('ob-dept'), job:val('ob-job'), rate, unit:val('ob-unit'), joining, end:val('ob-end'), tds:val('ob-tds'), terms:+val('ob-terms'), kind:role === 'vendor' ? 'vendor' : kind, ag:{status:'none'}, code:Math.random().toString(36).slice(2, 8).toUpperCase(), joinedAt:Date.now()};
+    S.users.push(u); S.members.push(m);
+    log(U.pid, 'onboard', `Invited ${name} as ${m.job}, ${m.dept} at ${inr(rate)} ${UNITS[m.unit]}`, {memberId:m.id});
+    U.modal = {type:'invite', userId:u.id}; save(); render(); },
+  deal: () => { const m = member(U.modal.id), rate = +val('ob-rate');
+    if (!(rate > 0)) return err('ob-err', 'Enter the rate in rupees.'); if (!val('ob-join')) return err('ob-err', 'Pick a joining date.');
+    const next = {rate, unit:val('ob-unit'), joining:val('ob-join'), end:val('ob-end'), tds:val('ob-tds'), terms:+val('ob-terms'), dept:val('ob-dept'), job:val('ob-job'), role:val('ob-role')};
+    if (m.userId === S.session && next.role !== m.role) return err('ob-err', 'You can’t change your own access.');
+    if (['signed','countersigned'].includes(m.ag?.status) && (next.rate !== m.rate || next.unit !== m.unit)) return err('ob-err', 'The fee is in a signed agreement. Agree the change in writing, then issue a new agreement.');
+    const changed = Object.keys(next).filter(k => String(next[k]) !== String(m[k] ?? ''));
+    if (!changed.length) { U.modal = null; return render(); }
+    changed.forEach(k => { log(U.pid, 'deal', `Changed ${user(m.userId).name}’s ${FIELD[k].toLowerCase()}`, {memberId:m.id, field:k, before:m[k], after:next[k]}); m[k] = next[k]; });
+    if (m.ag?.status === 'sent') { m.ag.text = agText(m); }
+    U.modal = null; done(`Deal saved · ${changed.length} change${changed.length > 1 ? 's' : ''} logged`); },
+  profile: () => { const u = me(), pan = val('pf-pan').toUpperCase(), gstin = val('pf-gstin').toUpperCase(), ifsc = val('pf-ifsc').toUpperCase(), acct = val('pf-acct').replace(/\s/g, '');
+    if (!val('pf-legal')) return err('pf-err', 'Enter your legal name as it appears on your PAN.');
+    if (!PAN_RE.test(pan)) return err('pf-err', 'PAN is 10 characters: 5 letters, 4 numbers, 1 letter (like ABCDE1234F).');
+    if (gstin && !GSTIN_RE.test(gstin)) return err('pf-err', 'GSTIN is 15 characters, like 27ABCDE1234F1Z5. Leave it empty if you aren’t registered.');
+    if (gstin && gstin.slice(2, 12) !== pan) return err('pf-err', 'Your GSTIN must contain your PAN (characters 3 to 12).');
+    if (!val('pf-addr')) return err('pf-err', 'Enter your address.');
+    if (!val('pf-holder')) return err('pf-err', 'Enter the account holder’s name.');
+    if (!ACCT_RE.test(acct)) return err('pf-err', 'Account numbers are 9 to 18 digits.');
+    if (!IFSC_RE.test(ifsc)) return err('pf-err', 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers (like HDFC0001234).');
+    const wasDone = profileDone(u);
+    Object.assign(u, {legal:val('pf-legal'), phone:val('pf-phone'), email:val('pf-email') || u.email, emergency:val('pf-emer'), address:val('pf-addr'), pan, gstin, bank:{holder:val('pf-holder'), name:val('pf-bank'), acct, ifsc}});
+    S.members.filter(m => m.userId === u.id).forEach(m => log(m.pid, 'profile', wasDone ? 'Updated profile and bank details' : 'Completed profile and bank details', {memberId:m.id}));
+    if (U.modal?.type === 'profile') U.modal = null; done('Details saved'); },
+  docs: () => { const u = me(), a4 = val('dc-a4');
+    if (!u.docs?.aadhaar) return err('dc-err', 'Upload a photo of your masked Aadhaar.'); if (!u.docs?.pan) return err('dc-err', 'Upload a photo of your PAN card.');
+    if (!/^\d{4}$/.test(a4)) return err('dc-err', 'Enter the last 4 digits of your Aadhaar.'); if (!$('#dc-consent').checked) return err('dc-err', 'Tick the consent box so the production can keep these copies.');
+    u.aadhaar4 = a4; u.consent = true; S.members.filter(m => m.userId === u.id).forEach(m => log(m.pid, 'docs', 'Uploaded masked Aadhaar and PAN card', {memberId:m.id}));
+    if (U.modal?.type === 'profile') U.modal = null; done('Documents saved'); },
+  sign: async () => { const m = memberIn(U.pid, S.session), name = val('sg-name');
+    if (name.length < 2) return err('sg-err', 'Type your full name.'); if (!U.sigInk) return err('sg-err', 'Draw your signature in the box.');
+    const sig = $('#sig').toDataURL('image/png'), text = m.ag.text || agText(m), hash = await sha256(text + '|' + name + '|' + sig);
+    Object.assign(m.ag, {status:'signed', signedAt:Date.now(), signedName:name, sig, text, hash});
+    log(U.pid, 'agreement', 'Signed the engagement agreement', {memberId:m.id}); done('Signed. The CFO or Commercial Head approves it next.'); },
+  raise: () => { const m = memberIn(U.pid, S.session), no = val('rv-no'), qty = +val('rv-qty'), from = val('rv-from'), to = val('rv-to'), g = +val('rv-gst') || 0;
+    if (!no) return err('rv-err', 'Enter your invoice number.');
+    if (S.invoices.some(i => i.pid === U.pid && i.by === S.session && i.no.toLowerCase() === no.toLowerCase())) return err('rv-err', 'You’ve already used that invoice number on this production.');
+    if (!(qty > 0)) return err('rv-err', `Enter the ${QTY[m.unit].toLowerCase()}.`); if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
+    const amount = Math.round(qty * m.rate), gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
+    const i = {id:uid('i'), pid:U.pid, memberId:m.id, by:S.session, dept:m.dept, no, from, to, qty, rate:m.rate, unit:m.unit, desc:val('rv-desc') || `${m.job}, ${fmtD(from)} to ${fmtD(to)}`, amount, gstRate:g, gst, tdsKey:m.tds, tds, payable:amount + gst - tds, status:'submitted', at:Date.now(), utr:'', reason:''};
+    S.invoices.push(i); log(U.pid, 'invoice', `Submitted invoice ${no} for ${inr(amount + gst)}`, {invoiceId:i.id}); U.modal = null; done(`Invoice ${no} submitted to your HOD`); },
+  pay: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
+    if (v.length < 6) return err('md-err', 'Enter the bank reference (UTR) from the payment.');
+    i.status = 'paid'; i.utr = v; i.paidAt = Date.now(); log(U.pid, 'payment', `Marked ${i.no} paid · UTR ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} marked paid`); },
+  reject: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
+    if (v.length < 4) return err('md-err', 'Say why, so they can fix it and resubmit.');
+    i.status = 'rejected'; i.reason = v; log(U.pid, 'invoice', `Rejected ${i.no}: ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} rejected; ${user(i.by).name} will see the reason`); },
+  company: () => { const g = val('co-gstin').toUpperCase(), pan = val('co-pan').toUpperCase(), tan = val('co-tan').toUpperCase(), ifsc = val('co-ifsc').toUpperCase(), acct = val('co-acct').replace(/\s/g, '');
+    if (!val('co-legal')) return err('co-err', 'Enter the company’s legal name as it appears on its PAN.');
+    if (!PAN_RE.test(pan)) return err('co-err', 'The company PAN is 10 characters: 5 letters, 4 numbers, 1 letter (like AAACS1234K).');
+    if (!TAN_RE.test(tan)) return err('co-err', 'TAN is 10 characters: 4 letters, 5 numbers, 1 letter (like MUMS12345C). You need it to deduct TDS.');
+    if (g && !GSTIN_RE.test(g)) return err('co-err', 'That GSTIN doesn’t look right: 15 characters, like 27AAACS1234K1Z5.');
+    if (g && g.slice(2, 12) !== pan) return err('co-err', 'The GSTIN must contain the company PAN (characters 3 to 12).');
+    if (!val('co-addr')) return err('co-err', 'Enter the registered address.');
+    if (!val('co-sig')) return err('co-err', 'Enter who signs agreements for the company.');
+    if (!ACCT_RE.test(acct) || !IFSC_RE.test(ifsc)) return err('co-err', 'Enter the account number (9 to 18 digits) and IFSC of the bank you pay crew from.');
+    const next = {legal:val('co-legal'), brand:val('co-brand'), type:val('co-type'), pan, tan, gstin:g, state:g ? g.slice(0, 2) : val('co-state'), cin:val('co-cin').toUpperCase(), address:val('co-addr'),
+      signatory:val('co-sig'), designation:val('co-desig'), email:val('co-email'), phone:val('co-phone'), bank:{name:val('co-bank'), acct, ifsc},
+      tally:{company:val('co-tco') || val('co-legal'), bankLedger:val('co-tbank') || `${val('co-bank') || 'Bank'} - Production A/c`, expenseGroup:val('co-texp'), creditorsGroup:val('co-tcred')}};
+    const first = !S.company, changed = first ? [] : Object.keys(next).filter(k => JSON.stringify(next[k]) !== JSON.stringify(S.company[k]));
+    S.company = {...(S.company || {}), ...next, setupBy:S.company?.setupBy || S.session, setupAt:S.company?.setupAt || Date.now()};
+    if (first){ U.view = 'projects'; U.modal = {type:'project'}; save(); render(); return toast('Company saved. Step 2: create your first production.'); }
+    if (changed.length) [...new Set(S.members.filter(m => m.userId === S.session).map(m => m.pid))].forEach(pid => log(pid, 'project', `Updated company details: ${changed.map(k => CO_LABEL[k] || k).join(', ')}`));
+    U.coEdit = false; done(changed.length ? 'Company details saved' : 'No changes'); },
+  plan: () => { const from = val('pl-from'), to = val('pl-to'), skip = $('#pl-sun').checked, per = Math.max(0, Math.round(+val('pl-eps') || 0)); let ep = +val('pl-ep') || 1;
+    if (!from || !to || to < from) return err('pl-err', 'Check the dates: the block ends before it starts.');
+    if ((new Date(to) - new Date(from)) / 864e5 > 120) return err('pl-err', 'Plan up to 120 days at a time.');
+    const have = new Set(S.days.filter(d => d.pid === U.pid).map(d => d.date)); let n = 0;
+    for (const d = new Date(from + 'T12:00'); isoD(d) <= to; d.setDate(d.getDate() + 1)){
+      const ds = isoD(d); if ((skip && d.getDay() === 0) || have.has(ds)) continue;
+      S.days.push({id:uid('d'), pid:U.pid, date:ds, status:'planned', location:val('pl-loc') || '—', call:val('pl-call') || '08:00', wrap:val('pl-wrap') || '20:00', epFrom:per ? ep : null, epTo:per ? ep + per - 1 : null, note:'', att:[]});
+      if (per) ep += per; n++;
+    }
+    if (!n) return err('pl-err', 'Those dates are already on the schedule.');
+    log(U.pid, 'schedule', `Planned ${n} shoot day${n > 1 ? 's' : ''} from ${fmtD(from)} to ${fmtD(to)}`); U.modal = null; U.month = ymOf(from); done(`${n} shoot day${n > 1 ? 's' : ''} added`); },
+  checkin: () => { const d = S.days.find(x => x.id === U.drawer?.id), code = val('ci-code').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const m = S.members.find(x => x.pid === U.pid && x.code === code);
+    if (!m) return err('ci-err', 'No one on this production has that Crew ID.');
+    const st = stageOf(m);
+    if (st.next) return err('ci-err', `${user(m.userId).name} isn’t fully onboarded yet (${NEXT_LABEL[st.next].toLowerCase()}).`);
+    if (d.att.includes(m.userId)) return err('ci-err', `${user(m.userId).name} is already checked in.`);
+    d.att.push(m.userId); if (d.status === 'planned') d.status = 'shot';
+    log(U.pid, 'schedule', `Checked in ${user(m.userId).name} for ${fmtD(d.date)}`, {memberId:m.id}); done(`${user(m.userId).name} checked in`); },
+  payrun: () => { const v = val('md-v'), list = S.invoices.filter(i => U.sel.includes(i.id) && i.status === 'approved');
+    if (v.length < 6) return err('md-err', 'Enter the reference the bank gave for this batch.');
+    if (!list.length) return err('md-err', 'Nothing selected is still waiting for payment.');
+    const t = Date.now(); list.forEach(i => { i.status = 'paid'; i.utr = v; i.paidAt = t; });
+    log(U.pid, 'payment', `Paid ${list.map(i => i.no).join(', ')} in one run · ${inr(list.reduce((s, i) => s + i.payable, 0))} · ref ${v}`);
+    U.sel = []; U.modal = null; done(`${list.length} invoice${list.length > 1 ? 's' : ''} marked paid`); },
+  chat: () => { const v = val('chat-in'); if (v) ask(v); },
+};
+
+/* ============================================================ events */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (U.menu && !e.target.closest('.menu') && !e.target.closest('.me')) { U.menu = false; if (!el) return render(); }
+  if (!el) return;
+  if (el.closest('[data-stop]') && el.tagName === 'TR') return;
+  if (el.tagName === 'TR' && e.target.closest('[data-stop] button')) return;
+  const f = ACT[el.dataset.act];
+  if (f){ e.preventDefault(); f(el); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ if (U.modal){ U.modal = null; renderLayer(); } else if (U.drawer){ U.drawer = null; renderLayer(); } else if (U.chat){ U.chat = false; renderChat(); } }
+  if (e.key === 'Enter' && e.target.matches('tr[data-act]')) ACT[e.target.dataset.act](e.target);
+});
+document.addEventListener('submit', e => { const f = FORMS[e.target.dataset.form]; if (f){ e.preventDefault(); f(); } });
+document.addEventListener('input', e => {
+  if (e.target.dataset.input === 'pq'){ U.pq = e.target.value; const tb = $('#people-rows'); if (tb) tb.innerHTML = peopleRows(); }
+  if (e.target.id === 'rv-qty') U.qtyTouched = true;
+  if ((e.target.id === 'rv-from' || e.target.id === 'rv-to') && !U.qtyTouched){ const m = memberIn(U.pid, S.session); if (m?.unit === 'day') $('#rv-qty').value = attIn(U.pid, S.session, val('rv-from'), val('rv-to')) || 1; }
+  if (e.target.closest('[data-input="calc"]')) calcInv();
+});
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (t.dataset.change === 'switch-project'){ if (!t.value) return ACT['go-projects'](); U.pid = t.value; U.view = 'home'; U.drawer = null; return render(); }
+  if (t.dataset.change === 'pd'){ U.pd = t.value; const tb = $('#people-rows'); if (tb) tb.innerHTML = peopleRows(); return; }
+  if (t.dataset.change === 'month'){ U.month = t.value; return render(); }
+  if (t.dataset.change === 'rmonth'){ U.rmonth = t.value; return render(); }
+  if (t.dataset.change === 'fmonth'){ U.fmonth = t.value; return render(); }
+  if (t.dataset.change === 'sel'){ U.sel = t.checked ? [...new Set([...U.sel, t.value])] : U.sel.filter(x => x !== t.value); return render(); }
+  if (t.dataset.change === 'selall'){ U.sel = t.checked ? S.invoices.filter(i => i.pid === U.pid && i.status === 'approved').map(i => i.id) : []; return render(); }
+  if (t.dataset.change === 'ob-dept'){ const job = $('#ob-job'); job.innerHTML = opt(DEPTS[t.value], ''); job.closest('label').firstChild.textContent = t.value === 'Vendors & Services' ? 'Service' : 'Job'; return; }
+  if (t.closest('[data-input="calc"]')) calcInv();
+  if (t.dataset.upload){
+    const file = t.files?.[0]; if (!file) return;
+    try { const k = t.dataset.upload, data = await readImage(file, k === 'photo' ? 360 : 900), u = me();
+      if (k === 'photo'){ u.photo = data; S.members.filter(m => m.userId === u.id).forEach(m => log(m.pid, 'profile', 'Updated profile photo', {memberId:m.id})); }
+      else u.docs = {...(u.docs || {}), [k]:data};
+      save(); render(); toast(k === 'photo' ? 'Photo updated' : k === 'pan' ? 'PAN card photo added' : 'Aadhaar photo added'); }
+    catch (x) { toast(x.message); }
+  }
+});
+function readImage(file, max = 900){
+  return new Promise((res, rej) => {
+    if (!file.type.startsWith('image/')) return rej(new Error('Upload a photo (JPG or PNG). PDFs aren’t supported in the demo.'));
+    const r = new FileReader();
+    r.onload = () => { const img = new Image(); img.onload = () => { const s = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .72)); };
+      img.onerror = () => rej(new Error('That file couldn’t be read as a photo.')); img.src = r.result; };
+    r.onerror = () => rej(new Error('Couldn’t read that file.')); r.readAsDataURL(file);
+  });
+}
+function setupSig(){
+  const c = document.getElementById('sig'); if (!c) return;
+  const ctx = c.getContext('2d'), ratio = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  c.width = w * ratio; c.height = h * ratio; ctx.scale(ratio, ratio); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = getComputedStyle(c).color;
+  let down = false; U.sigInk = false;
+  const pt = e => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  c.onpointerdown = e => { down = true; try { c.setPointerCapture(e.pointerId); } catch {} const [x, y] = pt(e); ctx.beginPath(); ctx.moveTo(x, y); };
+  c.onpointermove = e => { if (!down) return; const [x, y] = pt(e); ctx.lineTo(x, y); ctx.stroke(); U.sigInk = true; };
+  c.onpointerup = c.onpointercancel = () => { down = false; };
+}
+render();
