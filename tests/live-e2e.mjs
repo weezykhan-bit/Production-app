@@ -3,6 +3,8 @@
 // Usage: PGLITE=<path to @electric-sql/pglite dist/index.js> XLSX=<path to xlsx.full.min.js> node tests/live-e2e.mjs
 import fs from 'fs'; import path from 'path';
 import { chromium, db, pg, server, FAKE, ROOT } from './harness.mjs';
+// the owner in this run is the CFO, so with no Auditor, HOP or Commercial Manager on the show they take every step and pay
+await db.exec("update company_admins set role = 'cfo'");
 
 const errs = [], ok = m => console.log('  ok ' + m);
 const b = await chromium.launch();
@@ -104,22 +106,33 @@ try {
 
   // 5. LP checks the crew member in on a past shoot day
   await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=schedule]');
-  await ev(() => { const d = S.days.filter(x => x.date < today()).pop(); U.drawer = {type:'day', id:d.id}; renderLayer(); });
+  await ev(() => { const d = S.days.filter(x => x.date <= today() && x.date >= isoD(dayOff(-1))).pop(); U.drawer = {type:'day', id:d.id}; renderLayer(); });
   await p.fill('#ci-code', crewCode); await click('form[data-form=checkin] button[type=submit]');
   if ((await ev(() => S.days.filter(d => d.att.length).length)) !== 1) throw new Error('check-in failed: ' + await text('#ci-err').catch(() => ''));
   ok('gate check-in recorded'); await signOut();
 
   // 6. Crew raises an invoice (days filled from check-ins); LP and owner approve; owner pays and sends to Tally
   await signIn('imran'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=raise]');
-  await fill({'rv-from':await ev(() => isoD(dayOff(-6))), 'rv-to':await ev(() => isoD(dayOff(-1)))});
+  await fill({'rv-from':await ev(() => isoD(dayOff(-6))), 'rv-to':await ev(() => isoD(dayOff(0)))});
   await p.waitForTimeout(100); const qty = await p.inputValue('#rv-qty');
   if (qty !== '1') errs.push('invoice days not filled from check-ins: ' + qty);
   await p.fill('#rv-no', 'IS-001'); await click('form[data-form=raise] button[type=submit]');
   if (await ev(() => S.invoices.length) !== 1) throw new Error('invoice not submitted: ' + await text('#rv-err').catch(() => ''));
   ok('invoice submitted for ' + qty + ' day'); await signOut();
-  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=hod-ok]');
-  if (await ev(() => S.invoices[0].status) !== 'hod_ok') throw new Error('HOD step failed'); await signOut();
-  await signIn('fowzan'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('[data-act=final-ok]');
+  // the audit step waits for confirmed attendance
+  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('main [data-act=inv-step]'); await p.waitForTimeout(300);
+  if (await ev(() => S.invoices[0].status) !== 'submitted') errs.push('audited without confirmed attendance'); else ok('audit step refused until attendance is confirmed');
+  await signOut();
+  await signIn('fowzan'); await click('[data-act=open-project]');
+  await ev(() => { const d = S.days.find(x => x.att.length); U.drawer = {type:'day', id:d.id}; renderLayer(); });
+  await click('.drawer [data-act=att-confirm]');
+  if (!(await ev(() => !!S.days.find(x => x.att.length).confirmedAt))) throw new Error('attendance not confirmed');
+  if (!(await text('.drawer')).includes('Locked')) errs.push('confirmed day does not show as locked');
+  await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
+  await click('.rail [data-id=invoices]');
+  for (const want of ['audited','hop_ok','approved']){ await click('main [data-act=inv-step]'); await p.waitForTimeout(200); if (await ev(() => S.invoices[0].status) !== want) throw new Error('chain stopped before ' + want + ': ' + await ev(() => S.invoices[0].status)); }
+  await click('main tbody tr'); if (!(await p.$('.drawer .chain li.done:nth-child(4)'))) errs.push('chain tracker missing in the invoice'); await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
+  ok('attendance confirmed; invoice audited, HOP-confirmed and approved through the chain');
   // deduction and remark before payment
   await click('main [data-act=adjust]'); await p.selectOption('#dd-t0', 'advance'); await fill({'dd-a0':50, 'dd-n0':'Advance paid on set'}); await p.fill('#dd-rem', 'Return the walkie');
   if (!(await text('#dd-calc')).includes('4,405')) errs.push('deduction preview wrong: ' + await text('#dd-calc'));
@@ -227,6 +240,16 @@ try {
   if (!moved) errs.push('call-time change did not reach the crew member: ' + await text('#de-err').catch(() => '')); else ok('call-time change reached the crew member live');
   await q2.evaluate(() => { U.view = 'schedule'; render(); }); await q2.waitForTimeout(200);
   if (!(await q2.textContent('.callcard') || '').includes('06:15')) errs.push('next-call card missing or stale'); else ok('next-call card shows the new call time');
+  await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
+  // the owner assigns Imran a task; his phone hears about it and he moves it along
+  await click('.rail [data-id=tasks]'); await click('[data-act=new-task]'); await p.fill('#tk-title', 'Check the focus marks for the wedding song');
+  await p.check(`input[name=tk-who][value="${await ev(() => S.users.find(u => u.name === 'Imran Shaikh').id)}"]`); await p.selectOption('#tk-prio', 'high'); await click('form[data-form=task] button[type=submit]');
+  let tasked = false; for (let i = 0; i < 20 && !tasked; i++){ await q2.waitForTimeout(300); tasked = await q2.evaluate(() => S.notes.some(n => n.title === 'New task for you: Check the focus marks for the wedding song')); }
+  if (!tasked) errs.push('task assignment did not reach the crew member: ' + await text('#tk-err').catch(() => '')); else ok('task assignment reached the crew member live');
+  await q2.evaluate(() => { U.view = 'tasks'; render(); }); await q2.waitForTimeout(200); await q2.click('.tcard'); await q2.waitForTimeout(200);
+  await q2.click('.drawer [data-act=task-st][data-s=working]'); await q2.waitForTimeout(500);
+  if (await q2.evaluate(() => S.tasks[0]?.status) !== 'working') errs.push('crew could not move their task'); else ok('crew member moved the task to Working on it');
+  await q2.keyboard.press('Escape'); await q2.evaluate(() => { U.drawer = null; renderLayer(); });
   await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
   await q2.click('.bell'); await q2.waitForTimeout(200);
   const items = await q2.$$eval('.notes li button', b => b.map(x => x.querySelector('b').textContent));

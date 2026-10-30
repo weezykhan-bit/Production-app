@@ -82,7 +82,8 @@ select as_user(:'imran'); set role authenticated;
 select ok((join_production(lower(left(:'code0', 4)) || '-' || right(:'code0', 4)) ->> 'ok')::boolean, 'code works in any case, with a dash');
 select ok((select user_id from crew where id = :'imran_crew') = :'imran', 'joining took up the invite matched by mobile number');
 select ok((select count(*) from crew) = 1, 'crew see only their own row');
-select ok((select count(*) from people) = 3, 'crew see themselves and the two owners, nobody else');
+select ok((select count(*) from people) = 6 and not exists (select 1 from people p join crew c on c.user_id = p.id where c.role in ('crew','vendor') and p.id <> auth.uid()),
+          'crew see themselves, the owners and the production office, but no other crew');
 select ok(company_info() -> 'bank' ->> 'acct' like '••••%', 'crew see the company bank account masked');
 -- profile and documents
 select refused($$select save_profile('{"legal":"Imran Shaikh","pan":"BAD","address":"Mumbai","bank_holder":"Imran","bank_account":"917010023456789","bank_ifsc":"UTIB0000071"}')$$, 'pan_check');
@@ -161,7 +162,7 @@ select as_user(:'manoj'); set role authenticated;
 select plan_days(:'pid', jsonb_build_object('from', today_ist() - 6, 'to', today_ist() + 6, 'skip_sundays', true, 'eps_per_day', 1, 'start_ep', 300, 'location', 'Floor 3')) as n \gset
 select ok(:n between 10 and 11, 'planned a fortnight without Sundays');
 select refused(format($$select plan_days(%L, %L)$$, :'pid', jsonb_build_object('from', today_ist() - 6, 'to', today_ist() - 6)), 'already on the schedule');
-select id as pastday from shoot_days where day < today_ist() order by day limit 1 \gset
+select id as pastday from shoot_days where day <= today_ist() and day >= today_ist() - 1 order by day desc limit 1 \gset
 select id as futureday from shoot_days where day > today_ist() order by day limit 1 \gset
 select refused(format($$select set_day_status(%L, 'shot')$$, :'futureday'), 'on or after its date');
 select refused(format($$select check_in(%L, %L)$$, :'futureday', (select crew_code from crew where id = :'imran_crew')), 'opens on the day');
@@ -185,25 +186,39 @@ select refused(format($$select submit_crew_invoice(%L, '{"no":"IS-1","from":"202
 select submit_crew_invoice(:'pid', '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":6}') as inv \gset
 select ok((select amount = 27000 and tds = 270 and payable = 26730 from crew_invoices where id = :'inv'), 'fee, 1% TDS and payable worked out by the database');
 select refused(format($$select submit_crew_invoice(%L, '{"no":"IS-1","from":"2026-10-01","to":"2026-10-06","qty":1}')$$, :'pid'), 'already used invoice number');
-select refused(format($$select hod_approve(%L)$$, :'inv'), 'Only the head of this department');
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'your own invoice');
 reset role;
 select as_user(:'neha'); set role authenticated;
-select refused(format($$select hod_approve(%L)$$, :'inv'), 'Only the head of this department');
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'The Auditor approves');
 select refused(format($$select pay_invoices(%L, array[%L]::uuid[], 'UTR123456')$$, :'pid', :'inv'), 'Pick approved invoices');
 reset role;
 select as_user(:'asha'); set role authenticated;
 select ok((select count(*) from crew_invoices) = 1, 'HOD sees their department’s invoices');
-select hod_approve(:'inv');
-select refused(format($$select final_approve(%L)$$, :'inv'), 'Only the CFO or Commercial Head');
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'The Auditor approves');
+reset role;
+-- no Auditor or HOP on this show: the Line Producer takes those steps, but only against confirmed attendance
+select as_user(:'manoj'); set role authenticated;
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Only 0 confirmed days');
+reset role;
+insert into shoot_days (production_id, day, status, att_confirmed_at) select :'pid', d::date, 'shot', now() from generate_series('2026-10-01'::date, '2026-10-06'::date, '1 day') d;
+insert into checkins (day_id, user_id) select id, :'imran' from shoot_days where day between '2026-10-01' and '2026-10-06';
+select as_user(:'manoj'); set role authenticated;
+select ok(advance_invoice(:'inv') = 'audited', 'audited against six confirmed days');
+select ok(advance_invoice(:'inv') = 'hop_ok', 'Head of Production step (the LP, with no HOP on the show)');
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Commercial Head or a Commercial Manager');
 reset role;
 select as_user(:'kiran'); set role authenticated;
 select ok((select count(*) from crew_invoices) = 0, 'other crew can’t see the invoice');
 reset role;
 select as_user(:'ritika'); set role authenticated;
-select final_approve(:'inv');
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Commercial Head or a Commercial Manager');
+reset role;
+select as_user(:'fowzan'); set role authenticated;
+select ok(advance_invoice(:'inv') = 'approved', 'the Commercial Head approves for payment (the CFO can’t, while there is one)');
+select refused(format($$select pay_invoices(%L, array[%L]::uuid[], 'UTR123456')$$, :'pid', :'inv'), 'Only the CFO or Accounts');
 reset role;
 select as_user(:'asha'); set role authenticated;
-select refused(format($$select pay_invoices(%L, array[%L]::uuid[], 'UTR123456')$$, :'pid', :'inv'), 'Only Finance');
+select refused(format($$select pay_invoices(%L, array[%L]::uuid[], 'UTR123456')$$, :'pid', :'inv'), 'Only the CFO or Accounts');
 select refused(format($$select tally_mark(%L)$$, :'pid'), 'Only Finance');
 reset role;
 select as_user(:'neha'); set role authenticated;

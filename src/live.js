@@ -63,7 +63,7 @@ async function liveDB(cfg){
 }
 
 /* ---------------------------------------------------------------- load what this person may see */
-S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
+S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], tasks:[], unlocks:[], session:null};
 function save(){}
 function log(){}                       // the database writes the activity log itself
 const urlCache = {};
@@ -71,9 +71,10 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems] = await Promise.all([
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
-    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests')]);
+    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests'),
+    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks')]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -102,12 +103,17 @@ async function load(){
   next.invoices = invs.map(i => ({id:i.id, pid:i.production_id, memberId:i.crew_id, by:i.user_id, dept:i.dept || '', no:i.no, from:i.period_from, to:i.period_to, qty:+i.qty, rate:+i.rate, unit:i.unit,
     desc:i.descr || '', amount:+i.amount, gstRate:+i.gst_rate, gst:+i.gst, tdsKey:i.tds_key, tds:+i.tds, payable:+i.payable, status:i.status, at:ts(i.submitted_at),
     approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment,
-    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || ''}));
-  next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '',
+    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '',
+    auditedBy:i.audited_by, auditedAt:ts(i.audited_at), hopBy:i.hop_by, hopAt:ts(i.hop_at), approvedBy:i.approved_by}));
+  next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '', confirmedAt:ts(d.att_confirmed_at), confirmedBy:d.att_confirmed_by,
     att:checks.filter(c => c.day_id === d.id && !c.removed_at).map(c => c.user_id)}));
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
   next.log = acts.map(a => ({id:a.id, at:ts(a.at), by:a.by, pid:a.production_id, type:a.type, text:a.text, memberId:a.crew_id, invoiceId:a.invoice_id,
     field:a.field === 'end_date' ? 'end' : a.field, before:a.before, after:a.after, reverted:!!a.reverted_at}));
+  next.tasks = tks.map(t => ({id:t.id, pid:t.production_id, title:t.title, details:t.details || '', kind:t.kind, status:t.status, priority:t.priority, dept:t.dept || '', due:t.due || '',
+    dayId:t.day_id, by:t.created_by, at:ts(t.created_at), doneAt:ts(t.done_at), assignees:tas.filter(a => a.task_id === t.id).map(a => a.user_id),
+    updates:tus.filter(u => u.task_id === t.id).map(u => ({id:String(u.id), by:u.by, kind:u.kind, body:u.body, at:ts(u.at), accepted:!!u.accepted}))}));
+  next.unlocks = unl.map(q => ({id:q.id, pid:q.production_id, dayId:q.day_id, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, decidedBy:q.decided_by, decidedAt:ts(q.decided_at), expiresAt:ts(q.expires_at), note:q.note || ''}));
   next.removals = rems.map(q => ({id:q.id, pid:q.production_id, memberId:q.crew_id, person:q.person, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, note:q.note || ''}));
   next.notes = notes.map(n => ({id:n.id, pid:n.production_id, at:ts(n.at), kind:n.kind, title:n.title, body:n.body || '', view:n.view, read:!!n.read_at}));
   S = next;
@@ -154,8 +160,11 @@ Object.assign(ACT, {
   'send-ag': async el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
     if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
-  'hod-ok': el => step('hod_approve', el.dataset.id, 'sent on for final approval'),
-  'final-ok': el => step('final_approve', el.dataset.id, 'approved; Finance can pay it now'),
+  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id), r = await call('advance_invoice', {p_id:el.dataset.id}); if (r === FAIL) return; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'att-confirm': async el => { const n = await call('confirm_attendance', {p_day:el.dataset.id}); if (n !== FAIL) done(`Attendance confirmed · ${n} checked in`); },
+  'task-st': async el => { if (await call('set_task_status', {p_task:el.dataset.id, p_status:el.dataset.s}) !== FAIL) done(TASK_ST[el.dataset.s][0]); },
+  'task-accept': async el => { if (await call('accept_solution', {p_update:+el.dataset.id}) !== FAIL) done('Solution accepted; issue closed'); },
+  'task-del': async el => { if (!confirm('Delete this task?')) return; if (await call('delete_task', {p_task:el.dataset.id}) !== FAIL){ U.drawer = null; done('Task deleted'); } },
   revert: async el => { if (await call('revert_change', {p_log:+el.dataset.id}) !== FAIL) done('Change undone and logged'); },
   'day-status': async el => { if (await call('set_day_status', {p_day:el.dataset.id, p_status:el.dataset.s}) !== FAIL) done(`Day marked ${DAY[el.dataset.s][0].toLowerCase()}`); },
   uncheck: async el => { if (await call('remove_checkin', {p_day:el.dataset.id, p_user:el.dataset.u}) !== FAIL) done('Check-in removed'); },
@@ -226,6 +235,13 @@ Object.assign(FORMS, {
   rmask: async () => { if (await call('request_removal', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err') === FAIL) return; U.modal = null; done('Request sent to the CFO and Commercial Head'); },
   rmdecide: async () => { const r = await call('decide_removal', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('rm-note')}, 'rm-err'); if (r === FAIL) return;
     if (r !== 'declined') U.drawer = null; U.modal = null; done(r === 'declined' ? 'Kept; they’ve been told why' : r === 'deleted' ? 'Approved and deleted' : 'Approved; removed from the production'); },
+  unlockask: async () => { if (await call('request_day_unlock', {p_day:U.modal.id, p_reason:v('ul-why')}, 'ul-err') === FAIL) return; U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
+  unlockdecide: async () => { if (await call('decide_day_unlock', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('ud-note')}, 'ud-err') === FAIL) return; const y = U.modal.yes; U.modal = null; done(y ? 'Allowed for 24 hours' : 'Refused'); },
+  task: async () => { const who = [...document.querySelectorAll('input[name=tk-who]:checked')].map(x => x.value);
+    const id = await call('save_task', {p_production:U.pid, p:{id:U.modal.id || '', title:v('tk-title'), kind:document.querySelector('input[name=tk-kind]:checked')?.value || 'task', details:v('tk-details'),
+      priority:v('tk-prio'), due:v('tk-due'), dept:v('tk-dept'), day_id:v('tk-day'), assignees:who}}, 'tk-err');
+    if (id === FAIL) return; U.modal = null; U.drawer = {type:'task', id}; done(who.length ? 'Saved; the people assigned have been told' : 'Saved'); },
+  taskupdate: async () => { if (await call('add_task_update', {p_task:U.drawer.id, p_body:v('tu-body'), p_kind:document.querySelector('input[name=tu-kind]:checked')?.value || 'comment'}, 'tu-err') === FAIL) return; done('Posted'); },
   dayedit: async () => { const e1 = v('de-ep1'), e2 = v('de-ep2');
     if (await call('update_day', {p_day:U.modal.id, p:{call:v('de-call'), wrap:v('de-wrap'), location:v('de-loc'), note:v('de-note'), ep_from:e1, ep_to:e2 || e1}}, 'de-err') === FAIL) return;
     U.modal = null; done('Saved; the crew have been told about any change to the call, wrap or location'); },
@@ -428,7 +444,7 @@ async function boot(){
     if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id);
       // the first time someone signs in, show them the welcome video for their role (once, on any device)
       try { if (!U.modal && !(await DB.rpc('tour_status'))){ U.modal = {type:'welcome'}; DB.rpc('tour_done').catch(() => {}); } } catch {} }
-    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], session:null}; }
+    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], tasks:[], unlocks:[], session:null}; }
     render();
   };
   DB.auth.onChange((event, u) => {

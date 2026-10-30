@@ -27,7 +27,7 @@ const DEPTS = {
 const FORMATS = ['Long-format fiction · daily','Long-format fiction · weekly','Web series','Feature film','Micro-drama','Ad film','Music video','Non-fiction / reality','Documentary'];
 const ROLES = {
   cfo:{label:'CFO',owner:true}, commercial:{label:'Commercial Head',owner:true}, lp:{label:'Line Producer'}, hop:{label:'Head of Production'},
-  accounts:{label:'Finance & Accounts'}, hod:{label:'Head of Department'}, crew:{label:'Crew / Cast'}, vendor:{label:'Vendor / Service'},
+  commercial_mgr:{label:'Commercial Manager'}, auditor:{label:'Auditor'}, accounts:{label:'Accounts (CFO’s team)'}, hod:{label:'Head of Department'}, crew:{label:'Crew / Cast'}, vendor:{label:'Vendor / Service'},
 };
 const UNITS = {day:'per day',episode:'per episode',week:'per week',month:'per month',lump:'lump sum'};
 const QTY = {day:'Days worked',episode:'Episodes',week:'Weeks',month:'Months',lump:'Quantity'};
@@ -46,13 +46,16 @@ const DEMO_URL = location.origin + '/';
 const HOSTED = true;
 const STAGES = [['deal','Deal set'],['profile','Profile & bank'],['docs','Aadhaar & PAN'],['sent','Agreement sent'],['signed','Signed'],['active','Approved']];
 const NEXT_LABEL = {join:'Invited · not joined yet',deal:'Needs deal',profile:'Profile pending',docs:'Documents pending',sent:'Ready for agreement',signed:'Waiting for signature',active:'Awaiting approval'};
+// the approval chain every invoice follows
+const CHAIN = [['submitted','Submitted'],['audited','Audited'],['hop_ok','HOP confirmed'],['approved','Commercial approved'],['paid','Paid']];
+const STEP_NAME = {submitted:'Approve audit', audited:'Confirm (HOP)', hop_ok:'Approve (Commercial)'};
 const KINDS = [['cast','Artists'],['crew','Crew'],['vendor','Vendors']];
 const KIND_ONE = {cast:'Artist', crew:'Crew', vendor:'Vendor'};
 const AG_TYPE = {cast:'Artist agreement', crew:'Crew agreement', vendor:'Vendor service agreement'};
 // which list someone is on follows their department (the database applies the same rule)
 const kindOf = (dept, role, cur) => role === 'vendor' || dept === 'Vendors & Services' ? 'vendor' : dept === 'Cast' ? 'cast' : dept ? 'crew' : (cur || 'crew');
 const DEDUCT = {advance:'Advance recovered', damage:'Loss or damage', stay:'Food, stay or travel', penalty:'Late or penalty', other:'Other'};
-const INV = {submitted:['Waiting for HOD','warn'],hod_ok:['Waiting for CFO / Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
+const INV = {submitted:['With the Auditor','warn'],audited:['With the Head of Production','gold'],hop_ok:['With the Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
 
 /* ============================================================ helpers */
 const $ = s => document.querySelector(s);
@@ -85,6 +88,9 @@ const I = {
   cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', bank:'<path d="M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 21h18"/>',
   chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', building:'<path d="M4 21V5l8-3v19M12 8h8v13M8 8v.01M8 12v.01M8 16v.01M16 12v.01M16 16v.01M2 21h20"/>',
   play:'<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
+  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
+  tasks:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l2 2 3-3M7 15l2 2 3-3M14 10h4M14 16h4"/>', board:'<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/>',
+  table:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
   down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
 };
 const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
@@ -116,16 +122,35 @@ const can = {
   sendAgreement: r => isOwner(r) || isLP(r),
   countersign: r => isOwner(r),
   seeKyc: r => ['cfo','commercial','accounts'].includes(r),
-  pay: r => ['cfo','commercial','accounts'].includes(r),
-  audit: r => isOwner(r) || isLP(r) || r === 'accounts',
+  pay: r => ['cfo','accounts'].includes(r),
+  audit: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr'].includes(r),
   revert: r => isOwner(r),
   schedule: r => isOwner(r) || isLP(r),
-  reports: r => isOwner(r) || isLP(r) || r === 'accounts',
-  finance: r => ['cfo','commercial','accounts'].includes(r),
-  adjust: r => ['cfo','commercial','hop','lp','accounts'].includes(r),
+  reports: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr'].includes(r),
+  finance: r => ['cfo','commercial','commercial_mgr','accounts'].includes(r),
+  adjust: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor'].includes(r),
+  confirmAtt: r => r === 'auditor' || (isOwner(r) && !hasRole(U.pid, ['auditor'])),
+  grantUnlock: r => ['commercial','commercial_mgr'].includes(r),
+  askUnlock: r => isOwner(r) || isLP(r) || r === 'auditor',
+  taskHead: r => ['cfo','commercial','commercial_mgr','hop','lp','auditor','hod'].includes(r),
   remove: r => isOwner(r),
   askRemove: r => isLP(r),
 };
+// someone holds one of these roles on the show (owners count for their company role)
+const hasRole = (pid, roles) => S.members.some(m => m.pid === pid && !m.removed && !m.pending && !m.synthetic && !isOwner(m.role) && roles.includes(m.role))
+  || S.users.some(u => isOwner(u.title) && roles.includes(u.title));
+// may this role act on the invoice's current step? (same rules as the database)
+function stepOk(i, r){
+  if (i.status === 'submitted') return r === 'auditor' || (!hasRole(i.pid, ['auditor']) && ['cfo','commercial','lp'].includes(r));
+  if (i.status === 'audited') return r === 'hop' || (!hasRole(i.pid, ['hop']) && ['cfo','commercial','lp'].includes(r));
+  if (i.status === 'hop_ok') return ['commercial','commercial_mgr'].includes(r) || (!hasRole(i.pid, ['commercial','commercial_mgr']) && r === 'cfo');
+  return false;
+}
+// shoot days lock once attendance is confirmed, or once the day after is over
+const dayLocked = d => !!d.confirmedAt || d.date < isoD(dayOff(-1));
+const dayUnlock = d => (S.unlocks || []).find(q => q.dayId === d.id && q.status === 'approved' && q.expiresAt > Date.now());
+const dayPending = d => (S.unlocks || []).find(q => q.dayId === d.id && q.status === 'pending');
+const dayEditable = (d, r = myRole()) => !dayLocked(d) || can.grantUnlock(r) || !!dayUnlock(d);
 const pendingRemoval = m => (S.removals || []).find(q => q.memberId === m.id && q.status === 'pending');
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
 const profileDone = u => !!u?.ready?.profile;
@@ -184,15 +209,18 @@ function todos(pid, uidv){
   if (isOwner(r)){
     (S.removals || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => out.push({t:`Decide: remove ${q.person}?`, s:`Asked by ${user(q.by)?.name || 'the Line Producer'} · ${q.reason}`, act:'open-person', id:q.memberId, b:'Decide'}));
     mems.filter(m => m.ag?.status === 'signed').forEach(m => out.push({t:`Approve ${user(m.userId).name}’s signed agreement`, s:`${m.job} · ${rateText(m)}`, act:'open-person', id:m.id, b:'Review'}));
-    invs.filter(i => i.status === 'hod_ok' && i.by !== uidv).forEach(i => out.push({t:`Approve invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept}`, act:'open-invoice', id:i.id, b:'Review'}));
     mems.filter(m => !stageOf(m).d.deal).forEach(m => out.push({t:`Set ${user(m.userId).name}’s deal`, s:'Joined with the invite code; needs rate and joining date', act:'edit-deal', id:m.id, b:'Set deal'}));
   }
   if (isLP(r) || isOwner(r)){
     mems.filter(m => stageOf(m).next === 'sent').forEach(m => out.push({t:`Send agreement to ${user(m.userId).name}`, s:'Profile and documents are complete', act:'send-ag', id:m.id, b:'Send'}));
   }
-  if (isLP(r) || isOwner(r) || r === 'hod'){
-    invs.filter(i => i.status === 'submitted' && i.by !== uidv && (r !== 'hod' || i.dept === mine.dept)).forEach(i => out.push({t:`HOD check: invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept}`, act:'open-invoice', id:i.id, b:'Review'}));
-  }
+  invs.filter(i => i.by !== uidv && stepOk(i, r)).forEach(i => out.push({t:`${{submitted:'Audit', audited:'Confirm', hop_ok:'Approve'}[i.status]} invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept} · ${INV[i.status][0].toLowerCase()}`, act:'open-invoice', id:i.id, b:'Review'}));
+  if (can.confirmAtt(r)) S.days.filter(d => d.pid === pid && d.date <= today() && d.status !== 'cancelled' && !d.confirmedAt && d.att.length)
+    .forEach(d => out.push({t:`Confirm attendance for ${fmtD(d.date)}`, s:`${d.att.length} checked in at the gate · invoices wait for this`, act:'open-day', id:d.id, b:'Confirm'}));
+  if (can.grantUnlock(r)) (S.unlocks || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => { const d = S.days.find(x => x.id === q.dayId);
+    if (d) out.push({t:`Allow changes to ${fmtD(d.date)}?`, s:`Asked by ${user(q.by)?.name || 'production'} · ${q.reason}`, act:'open-day', id:d.id, b:'Decide'}); });
+  (S.tasks || []).filter(t => t.pid === pid && t.status !== 'done' && t.assignees.includes(uidv) && t.due && t.due <= isoD(dayOff(2)))
+    .forEach(t => out.push({t:`${t.kind === 'issue' ? 'Issue' : 'Task'}: ${t.title}`, s:`${t.due < today() ? 'Overdue' : 'Due'} ${fmtD(t.due)} · ${TASK_ST[t.status][0]}`, act:'open-task', id:t.id, b:'Open'}));
   if (can.pay(r)){
     invs.filter(i => i.status === 'approved').forEach(i => out.push({t:`Pay ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · approved, waiting for payment`, act:'pay', id:i.id, b:'Mark paid'}));
   }
@@ -223,7 +251,7 @@ function render(){
     const ok = {people:isStaff(r), agreements:isStaff(r), activity:can.audit(r), finance:can.finance(r), reports:can.reports(r), company:isStaff(r)};
     if (U.view in ok && !ok[U.view]) U.view = 'home';
   }
-  const views = {home:isStaff(r) ? dashView : mySetupView, schedule:scheduleView, people:peopleView, agreements:agreementsView, invoices:invoicesView, finance:financeView, reports:reportsView, activity:activityView, access:accessView, company:companyView};
+  const views = {home:isStaff(r) ? dashView : mySetupView, schedule:scheduleView, people:peopleView, agreements:agreementsView, invoices:invoicesView, finance:financeView, reports:reportsView, activity:activityView, access:accessView, company:companyView, tasks:tasksView};
   const view = !U.pid ? (U.view === 'company' ? companyView() : projectsView()) : (views[U.view] || views.home)();
   app.innerHTML = topBar() + (U.pid ? `<div class="shell">${rail()}<main><div class="wrap">${view}</div></main></div>` : `<main><div class="wrap">${view}</div></main>`);
   renderLayer(); renderChat(); afterRender();
@@ -231,7 +259,7 @@ function render(){
 function afterRender(){ setupSig(); }
 
 function loginView(){
-  const demo = [['ritika','Ritika Menon','CFO · owner access'],['fowzan','Fowzan','Commercial Head · owner access'],['manoj','Manoj Patil','Line Producer · shares the code'],['neha','Neha Kulkarni','Finance & Accounts'],['asha','Asha D’Souza','HOD · Camera'],['priya','Priya Nair','Crew · onboarding in progress'],['dev','Dev Malhotra','Cast · agreement to sign'],['imran','Imran Shaikh','Crew · onboarded, invoices']].filter(([n]) => S.users.some(x => x.username === n));
+  const demo = [['ritika','Ritika Menon','CFO · owner access'],['fowzan','Fowzan','Commercial Head · owner access'],['sneha','Sneha Iyer','Commercial Manager · approves and unlocks'],['hema','Hema Joshi','Head of Production · confirms invoices'],['vikas','Vikas Rao','Auditor · confirms attendance'],['manoj','Manoj Patil','Line Producer · shares the code'],['neha','Neha Kulkarni','Finance & Accounts'],['asha','Asha D’Souza','HOD · Camera'],['priya','Priya Nair','Crew · onboarding in progress'],['dev','Dev Malhotra','Cast · agreement to sign'],['imran','Imran Shaikh','Crew · onboarded, invoices']].filter(([n]) => S.users.some(x => x.username === n));
   const su = U.auth === 'signup';
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
@@ -274,7 +302,7 @@ function topBar(){
 
 function rail(){
   const r = myRole(), staff = isStaff(r), n = todos(U.pid, S.session).length;
-  const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], staff && ['people','Artists, crew & vendors','people'], staff && ['agreements','Agreements','doc'],
+  const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], ['tasks','Tasks','tasks'], staff && ['people','Artists, crew & vendors','people'], staff && ['agreements','Agreements','doc'],
     ['invoices', staff ? 'Invoices' : 'My invoices', 'inv'], can.finance(r) && ['finance','Payments & Tally','bank'], can.reports(r) && ['reports','Reports','chart']].filter(Boolean);
   const more = [staff && ['company','Company details','building'], can.audit(r) && ['activity','Activity log','log'], ['access','Who can do what','key']].filter(Boolean);
   const b = ([k, l, ic]) => `<button data-act="go" data-id="${k}" ${U.view === k ? 'aria-current="page"' : ''}>${icon(ic)}${l}${k === 'home' && n ? `<span class="count">${n}</span>` : ''}</button>`;
@@ -330,11 +358,11 @@ function projBlock(p){
   return wk.length ? (wk[0].epFrom === wk[wk.length - 1].epTo ? `Ep ${wk[0].epFrom}` : `Ep ${wk[0].epFrom}–${wk[wk.length - 1].epTo}`) : fmtD(n[0].date);
 }
 const attIn = (pid, uidv, from, to) => S.days.filter(d => d.pid === pid && d.status === 'shot' && d.date >= from && d.date <= to && d.att.includes(uidv)).length;
-const overClaim = i => i.unit === 'day' && ['submitted','hod_ok'].includes(i.status) && i.qty > attIn(i.pid, i.by, i.from, i.to);
+const overClaim = i => i.unit === 'day' && ['submitted','audited','hop_ok'].includes(i.status) && i.qty > attIn(i.pid, i.by, i.from, i.to);
 function attCheck(i){
   if (i.unit !== 'day') return '';
   const n = attIn(i.pid, i.by, i.from, i.to);
-  return `<section class="panel"><h3>Attendance check</h3>${i.qty > n ? `<p><span class="chip bad">Claims ${i.qty} days · gate check-ins show ${n}</span></p><p class="small muted" style="margin-top:8px">Confirm with the HOD before approving.</p>` : `<p><span class="chip good">Matches gate check-ins · ${n} day${n === 1 ? '' : 's'}</span></p>`}</section>`;
+  return `<section class="panel"><h3>Attendance check</h3>${i.qty > n ? `<p><span class="chip bad">Claims ${i.qty} days · gate check-ins show ${n}</span></p><p class="small muted" style="margin-top:8px">The Auditor approves only against confirmed attendance.</p>` : `<p><span class="chip good">Matches gate check-ins · ${n} day${n === 1 ? '' : 's'}</span></p>`}</section>`;
 }
 function monthsOf(pid){
   const s = new Set([ymOf(today())]);
@@ -357,7 +385,7 @@ function monthStats(pid, ym){
     if (ub){ unbilled += ub; byDept[m.dept] = byDept[m.dept] || {billed:0, unbilled:0}; byDept[m.dept].unbilled += ub; }
   });
   const approved = sum(invs.filter(i => ['approved','paid'].includes(i.status)), i => i.amount);
-  const pend = invs.filter(i => ['submitted','hod_ok'].includes(i.status));
+  const pend = invs.filter(i => ['submitted','audited','hop_ok'].includes(i.status));
   return {sched:days.filter(d => d.status !== 'cancelled').length, shot:shotD.length, cancelled:days.filter(d => d.status === 'cancelled').length, planned:days.filter(d => d.status === 'planned').length,
     eps:sum(shotD.filter(d => d.epFrom), d => d.epTo - d.epFrom + 1), approved, pending:sum(pend, i => i.amount), pendingPay:sum(pend, i => i.payable),
     paid:sum(S.invoices.filter(i => i.pid === pid && i.paidAt && ymAt(i.paidAt) === ym), i => i.payable),
@@ -388,7 +416,7 @@ function codePanel(p){
 function dashView(){
   const p = proj(U.pid), r = myRole(), mems = S.members.filter(m => m.pid === p.id && !m.removed), invs = S.invoices.filter(i => i.pid === p.id), td = todos(p.id, S.session);
   const onb = mems.filter(m => !stageOf(m).next).length;
-  const pend = invs.filter(i => ['submitted','hod_ok'].includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
+  const pend = invs.filter(i => ['submitted','audited','hop_ok'].includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
   const sum = (a, k = 'payable') => a.reduce((s, i) => s + i[k], 0);
   const funnel = STAGES.map(([k, l]) => [l, mems.filter(m => stageOf(m).d[k]).length]);
   const spend = {}; invs.filter(i => ['approved','paid'].includes(i.status)).forEach(i => spend[i.dept] = (spend[i.dept] || 0) + i.amount);
@@ -533,11 +561,11 @@ function invoicesView(){
   if (!staff) invs = invs.filter(i => i.by === S.session);
   else if (r === 'hod') invs = invs.filter(i => i.dept === m.dept || i.by === S.session);
   const mineToAct = i => invActions(i).length > 0;
-  const tabs = staff ? [['mine','Needs my action'],['all','All'],['submitted','Waiting for HOD'],['hod_ok','Waiting for owner'],['approved','To pay'],['paid','Paid'],['rejected','Rejected']] : [];
+  const tabs = staff ? [['mine','Needs my action'],['all','All'],['submitted','With Auditor'],['audited','With HOP'],['hop_ok','With Commercial'],['approved','To pay'],['paid','Paid'],['rejected','Rejected']] : [];
   const f = staff ? U.invf : 'all';
   const shown = invs.filter(i => f === 'all' || (f === 'mine' ? mineToAct(i) : i.status === f)).sort((a, b) => b.at - a.at);
   const canRaise = !staff ? !stageOf(m).next : true;
-  return `${projHead(staff ? 'Invoices' : 'My invoices', `<p class="muted">Approval goes ${esc('HOD → CFO / Commercial Head → Accounts pays')}. TDS comes off the fee before GST is added back.</p>`)}
+  return `${projHead(staff ? 'Invoices' : 'My invoices', `<p class="muted">Approval goes ${esc('Auditor → Head of Production → Commercial Head → CFO / Accounts pays')}. Everyone in the chain is told when it’s their turn. TDS comes off the fee before GST is added back.</p>`)}
   <div class="spread"><div class="filters">${tabs.map(([k, l]) => `<button class="fchip" data-act="invf" data-id="${k}" aria-pressed="${U.invf === k}">${l}<span class="n">${invs.filter(i => k === 'all' || (k === 'mine' ? mineToAct(i) : i.status === k)).length}</span></button>`).join('')}</div>
     ${m && m.rate ? `<button class="btn primary" data-act="raise" ${canRaise ? '' : 'disabled title="Finish onboarding first"'}>${icon('plus', 16)}Raise invoice</button>` : ''}</div>
   ${!staff && !canRaise ? '<p class="banner">You can raise invoices once your agreement is approved.</p>' : ''}
@@ -551,17 +579,16 @@ function invoicesView(){
     <td class="r" data-stop="1"><span class="row" style="justify-content:flex-end;flex-wrap:nowrap">${acts.map(([a, l, cls]) => `<button class="btn sm ${cls || ''}" data-act="${a}" data-id="${i.id}">${l}</button>`).join('')}</span></td></tr>`; }).join('') || `<tr><td colspan="${staff ? 11 : 10}"><div class="empty">${staff ? 'No invoices here.' : 'You haven’t raised an invoice yet.'}</div></td></tr>`}
   </tbody></table></div>
   ${staff ? '' : `<div class="inv-cards">${shown.map(i => { const [l, c] = INV[i.status];
-    return `<button class="invcard" data-act="open-invoice" data-id="${i.id}"><span class="spread"><b class="mono">${esc(i.no)}</b><span class="chip ${c}">${l}</span></span>
+    return `<button class="invcard" data-act="open-invoice" data-id="${i.id}"><span class="spread"><b class="mono">${esc(i.no)}</b><span class="chip ${c}">${l}</span></span>${chainBar(i, true)}
       <span class="spread"><span class="small muted">${fmtD(i.from)} – ${fmtD(i.to)} · ${i.qty} × ${inr(i.rate)}</span><b class="num">${inr(i.payable)}</b></span>
       ${i.deduction ? `<span class="small">Deductions −${inr(i.deduction)}: ${esc((i.deductions || []).map(d => d.label).join(', '))}</span>` : ''}${i.remarks ? `<span class="small muted">“${esc(i.remarks)}”</span>` : ''}${i.utr ? `<span class="small mono muted">Paid · ${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="small" style="color:var(--bad)">${esc(i.reason)}</span>` : ''}</button>`; }).join('') || '<div class="empty">You haven’t raised an invoice yet.</div>'}</div>`}`;
 }
-const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && ['submitted','hod_ok','approved'].includes(i.status) && !i.tp;
+const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && ['submitted','audited','hop_ok','approved'].includes(i.status) && !i.tp;
 function invActions(i){
-  const r = myRole(), mine = memberIn(U.pid, S.session), out = [];
-  if (i.status === 'submitted' && i.by !== S.session && (isLP(r) || isOwner(r) || (r === 'hod' && mine.dept === i.dept))) out.push(['hod-ok','Approve']);
-  if (i.status === 'hod_ok' && isOwner(r) && i.by !== S.session) out.push(['final-ok','Approve']);
+  const r = myRole(), out = [];
+  if (i.by !== S.session && stepOk(i, r)) out.push(['inv-step', STEP_NAME[i.status]]);
   if (i.status === 'approved' && can.pay(r)) out.push(['pay','Mark paid']);
-  if (out.length && i.status !== 'approved') out.push(['reject','Reject','danger']);
+  if (i.by !== S.session && ['submitted','audited','hop_ok'].includes(i.status) && (stepOk(i, r) || isOwner(r))) out.push(['reject','Reject','danger']);
   return out.map(([a, l, c]) => [a, l, c || (a === 'reject' ? '' : 'primary')]);
 }
 
@@ -587,17 +614,18 @@ function fmtField(f, v){
 
 /* ---------- access */
 function accessView(){
-  const cols = ['cfo','commercial','hop','lp','accounts','hod','crew','vendor'];
+  const cols = ['cfo','commercial','commercial_mgr','auditor','hop','lp','accounts','hod','crew','vendor'];
   const rows = [
     ['Create a production', r => isOwner(r)], ['Onboard people and send invites', r => can.onboard(r)], ['Set or change a deal (rate, dates, TDS)', r => can.editDeal(r)],
     ['Send agreements', r => can.sendAgreement(r)], ['Approve signed agreements', r => can.countersign(r)], ['See everyone’s PAN, Aadhaar and bank details', r => can.seeKyc(r)],
-    ['Approve invoices at HOD step', r => ['cfo','commercial','lp','hop','hod'].includes(r)], ['Final invoice approval', r => isOwner(r)], ['Mark invoices paid', r => can.pay(r)],
+    ['Confirm attendance; approve invoices (step 1)', r => r === 'auditor'], ['Confirm invoices (step 2)', r => r === 'hop'], ['Approve invoices for payment (step 3)', r => ['commercial','commercial_mgr'].includes(r)], ['Mark invoices paid (step 4)', r => can.pay(r)],
+    ['Allow changes to a locked shoot day', r => can.grantUnlock(r)], ['Assign tasks', r => can.taskHead(r)],
     ['See the activity log', r => can.audit(r)], ['Undo deal changes', r => can.revert(r)], ['Set up company details (once)', r => isOwner(r)], ['Generate and share the production code', r => can.code(r)],
     ['Plan the shoot schedule and check crew in', r => can.schedule(r)], ['See monthly reports and costs', r => can.reports(r)],
     ['Payment runs, TDS and GST registers, Tally sync', r => can.finance(r)],
     ['Fill own profile, photo, documents, sign, raise invoices', () => true],
   ];
-  return `${projHead('Who can do what', '<p class="muted">Owner access belongs to the CFO and the Commercial Head. A HOD approves only their own department’s invoices, and nobody approves their own invoice.</p>')}
+  return `${projHead('Who can do what', '<p class="muted">Owner access belongs to the CFO and the Commercial Head. Invoices go Auditor → Head of Production → Commercial Head or Manager → CFO or Accounts pays. If a show has nobody in a role, the owners and Line Producer cover that step. Nobody approves their own invoice. HODs assign tasks within their department.</p>')}
   <div class="tablewrap"><table class="matrix"><thead><tr><th>Can…</th>${cols.map(c => `<th>${ROLES[c].label}</th>`).join('')}</tr></thead><tbody>
   ${rows.map(([l, f]) => `<tr><td>${l}</td>${cols.map(c => `<td>${f(c) ? '<span class="yes" aria-label="yes">✓</span>' : '<span class="no" aria-label="no">·</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
@@ -621,7 +649,7 @@ function scheduleView(){
   let cells = '';
   for (let n = 1; n <= dim; n++){
     const ds = `${ym}-${String(n).padStart(2, '0')}`, d = byDate[ds], t = ds === today() ? ' today' : '';
-    cells += d ? `<button class="d ${d.status}${t}" data-act="open-day" data-id="${d.id}" aria-label="${fmtD(ds)}, ${DAY[d.status][0]}"><span class="n">${n}</span><span class="tag">${d.status === 'cancelled' ? 'Cancelled' : esc(epsLabel(d))}</span><span class="tag">${d.status === 'shot' ? `${d.att.length} checked in` : 'Call ' + d.call}</span>${!staff && d.att.includes(S.session) ? '<span class="tag ok">✓ present</span>' : ''}</button>`
+    cells += d ? `<button class="d ${d.status}${t}" data-act="open-day" data-id="${d.id}" aria-label="${fmtD(ds)}, ${DAY[d.status][0]}"><span class="n">${n}</span><span class="tag">${d.status === 'cancelled' ? 'Cancelled' : esc(epsLabel(d))}</span><span class="tag">${d.status === 'shot' ? `${d.att.length} checked in${d.confirmedAt ? ' ✓' : ''}` : 'Call ' + d.call}</span>${(S.tasks || []).some(t => t.pid === d.pid && t.status !== 'done' && (t.due === ds || t.dayId === d.id)) ? `<span class="tag tasktag">${(S.tasks || []).filter(t => t.pid === d.pid && t.status !== 'done' && (t.due === ds || t.dayId === d.id)).length} task${(S.tasks || []).filter(t => t.pid === d.pid && t.status !== 'done' && (t.due === ds || t.dayId === d.id)).length === 1 ? '' : 's'}</span>` : ''}${!staff && d.att.includes(S.session) ? '<span class="tag ok">✓ present</span>' : ''}</button>`
       : `<button class="d none${t}" ${edit ? `data-act="plan" data-id="${ds}" aria-label="Add a shoot day on ${fmtD(ds)}"` : 'disabled'}><span class="n">${n}</span>${edit ? '<span class="tag">+ Add</span>' : ''}</button>`;
   }
   return `${projHead('Shoot schedule', `<p class="muted">${edit ? 'Tap a day to see who was there, check crew in or change it. Tap an empty day to add shoot days.' : 'Your production’s shoot days. Days you were checked in at the gate count towards your invoice.'}</p>`)}
@@ -638,19 +666,101 @@ function scheduleView(){
   <section class="panel stack"><div class="cal">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<span class="dow">${d}</span>`).join('')}${'<span></span>'.repeat(lead)}${cells}</div>
     <div class="legend"><span><i style="background:var(--accent-soft)"></i>Shot</span><span><i style="background:var(--surface)"></i>Scheduled</span><span><i style="background:var(--bad-soft)"></i>Cancelled</span><span><i style="box-shadow:inset 0 0 0 2px var(--marigold)"></i>Today</span></div></section>`;
 }
+function lockPanel(d){
+  const r = myRole(), nm = id => esc(user(id)?.name || 'someone'), locked = dayLocked(d), un = dayUnlock(d), pend = dayPending(d);
+  let h = '';
+  if (d.confirmedAt) h += `<p class="okline">${icon('check', 16)}<span>Attendance confirmed by <b>${nm(d.confirmedBy)}</b> · ${fmtT(d.confirmedAt)}</span></p>`;
+  else if (can.confirmAtt(r) && d.date <= today() && d.status !== 'cancelled') h += `<button class="btn primary" data-act="att-confirm" data-id="${d.id}">${icon('check', 16)}Confirm attendance · ${d.att.length} checked in</button>`;
+  if (locked){
+    h += `<p class="lockline">${icon('lock', 16)}<span><b>Locked.</b> ${d.confirmedAt ? 'Attendance is confirmed.' : 'This day is over.'} Changes need permission from the Commercial Head or a Commercial Manager.</span></p>`;
+    if (un) h += `<p class="small">Open for changes until <b>${new Date(un.expiresAt).toLocaleString('en-IN', {weekday:'short', hour:'2-digit', minute:'2-digit'})}</b> · allowed by ${nm(un.decidedBy)}</p>`;
+    else if (pend) h += `<div class="stack" style="gap:8px"><p class="small"><b>${nm(pend.by)}</b> asked ${fmtT(pend.at)}: ${esc(pend.reason)}</p>${can.grantUnlock(r)
+      ? `<div class="row"><button class="btn primary sm" data-act="unlock-decide" data-id="${pend.id}" data-yes="1">Allow for 24 hours</button><button class="btn sm" data-act="unlock-decide" data-id="${pend.id}">Refuse</button></div>`
+      : '<p class="small muted">Waiting for the Commercial Head or a Commercial Manager.</p>'}</div>`;
+    else if (can.askUnlock(r) && !can.grantUnlock(r)) h += `<button class="btn sm" data-act="unlock-ask" data-id="${d.id}" style="justify-self:start">${icon('lock', 15)}Ask for permission to change it</button>`;
+  }
+  return h ? `<section class="panel stack lockpanel${locked ? ' locked' : ''}">${h}</section>` : '';
+}
 function dayDrawer(d){
   if (!d) return '';
-  const r = myRole(), p = proj(d.pid), [l, c] = DAY[d.status], edit = can.schedule(r);
+  const r = myRole(), p = proj(d.pid), [l, c] = DAY[d.status], edit = (can.schedule(r) || r === 'commercial_mgr') && dayEditable(d, r);
   const present = d.att.map(u => memberIn(d.pid, u)).filter(Boolean), dayRate = present.filter(m => m.unit === 'day' && m.rate);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
   <div class="stack" style="gap:4px"><p class="eyebrow">${esc(p.name)} · shoot day</p><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
+  ${isStaff(r) ? lockPanel(d) : ''}
   <section class="panel"><dl class="dl"><dt>Call time</dt><dd class="mono">${d.call}</dd><dt>Expected wrap</dt><dd class="mono">${d.wrap}</dd><dt>Location</dt><dd>${esc(d.location)}</dd>${d.note ? `<dt>Note</dt><dd>${esc(d.note)}</dd>` : ''}
     ${isStaff(r) && d.status === 'shot' ? `<dt>Day-rate cost</dt><dd class="num">${inr(dayRate.reduce((s, m) => s + m.rate, 0))} <span class="muted small">for ${dayRate.length} people checked in</span></dd>` : ''}</dl></section>
-  ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status === 'planned' ? `<button class="btn" data-act="day-edit" data-id="${d.id}">Edit call time & details</button>` : ''}${d.status !== 'cancelled' && !d.att.length ? `<button class="btn" data-act="day-cancel" data-id="${d.id}">Cancel this day</button>` : ''}${d.status !== 'planned' && !d.att.length ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>
+  ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status !== 'cancelled' ? `<button class="btn" data-act="day-edit" data-id="${d.id}">Edit call time & details</button>` : ''}${d.status !== 'cancelled' && !d.att.length ? `<button class="btn" data-act="day-cancel" data-id="${d.id}">Cancel this day</button>` : ''}${d.status !== 'planned' && !d.att.length ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>
     ${d.att.length && d.status !== 'cancelled' ? '<p class="small muted">People are checked in on this day, so it can’t be cancelled or moved back. Remove their check-ins first.</p>' : ''}` : ''}
   ${edit && d.status !== 'cancelled' && d.date <= today() ? `<section class="panel stack"><h3>Gate check-in</h3><form class="row" data-form="checkin" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Crew ID<input type="text" id="ci-code" class="mono" placeholder="e.g. ${esc(memberIn(d.pid, 'u_imran')?.code || 'AB12CD')}" autocomplete="off"></label><button class="btn primary" type="submit">Check in</button></form><p class="err" id="ci-err"></p><p class="small muted">In the live app the gate scans the QR on each Crew ID. These days fill everyone’s invoices.</p></section>` : ''}
   ${isStaff(r) ? `<section class="panel"><h3>Checked in (${present.length})</h3>${present.length ? `<ul class="feed">${present.map(m => `<li>${av(user(m.userId), 26)}<span class="spread"><span><b>${esc(user(m.userId).name)}</b> · ${esc(m.job)}</span>${edit ? `<button class="btn ghost sm" data-act="uncheck" data-id="${d.id}" data-u="${m.userId}">Remove</button>` : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No one checked in.</p>'}</section>`
     : `<section class="panel"><p>${d.att.includes(S.session) ? '✓ You were checked in on this day.' : d.status === 'cancelled' ? 'No shoot on this day.' : d.date >= today() ? `You’re called at <b>${esc(d.call)}</b>${d.location ? ' at ' + esc(d.location) : ''}. Show your Crew ID at the gate.` : 'You weren’t checked in on this day.'}</p></section>`}`;
+}
+
+/* ---------- tasks: a board, a table by department and a calendar, like a production Monday.com */
+const TASK_ST = {todo:['To do','st-todo'], working:['Working on it','st-working'], stuck:['Stuck','st-stuck'], done:['Done','st-done']};
+const PRIO = {low:['Low','pr-low'], medium:['Medium','pr-med'], high:['High','pr-high'], critical:['Critical','pr-crit']};
+const taskTouch = t => can.taskHead(myRole()) || t.by === S.session || t.assignees.includes(S.session);
+const faces = (ids, n = 3) => `<span class="faces">${ids.slice(0, n).map(u => av(user(u), 24)).join('')}${ids.length > n ? `<span class="more">+${ids.length - n}</span>` : ''}</span>`;
+const dueChip = t => !t.due ? '' : `<span class="due${t.status !== 'done' && t.due < today() ? ' late' : t.status !== 'done' && t.due <= isoD(dayOff(1)) ? ' soon' : ''}">${t.status !== 'done' && t.due < today() ? 'Overdue · ' : ''}${new Date(t.due + 'T12:00').toLocaleDateString('en-IN', {day:'numeric', month:'short'})}</span>`;
+function myTasks(){
+  const r = myRole(), all = (S.tasks || []).filter(t => t.pid === U.pid && (isStaff(r) || t.assignees.includes(S.session) || t.by === S.session)), q = (U.tq || '').toLowerCase();
+  return all.filter(t => U.tf === 'mine' ? t.assignees.includes(S.session) : U.tf === 'issues' ? t.kind === 'issue' : U.tf === 'late' ? t.status !== 'done' && t.due && t.due < today() : true)
+    .filter(t => !q || [t.title, t.dept, ...t.assignees.map(u => user(u)?.name)].join(' ').toLowerCase().includes(q));
+}
+function taskCard(t){
+  const sol = t.updates.filter(u => u.kind === 'solution').length, ups = t.updates.filter(u => ['comment','solution'].includes(u.kind)).length;
+  return `<button class="tcard" data-act="open-task" data-id="${t.id}"><span class="tc-top">${t.kind === 'issue' ? '<span class="tag-issue">Issue</span>' : ''}<span class="prio ${PRIO[t.priority][1]}">${PRIO[t.priority][0]}</span>${t.dept ? `<span class="tc-dept">${esc(t.dept)}</span>` : ''}</span>
+    <b class="tc-title">${esc(t.title)}</b>
+    <span class="tc-foot">${faces(t.assignees)}${dueChip(t)}${ups ? `<span class="tc-n" title="Updates">${icon('chat', 13)}${ups}${t.kind === 'issue' ? ` · ${sol} solution${sol === 1 ? '' : 's'}` : ''}</span>` : ''}</span></button>`;
+}
+function tasksView(){
+  const r = myRole(), list = myTasks(), all = (S.tasks || []).filter(t => t.pid === U.pid), v = U.tv || 'board';
+  const cnt = k => all.filter(t => k === 'mine' ? t.assignees.includes(S.session) : k === 'issues' ? t.kind === 'issue' : k === 'late' ? t.status !== 'done' && t.due && t.due < today() : true).length;
+  const open = all.filter(t => t.status !== 'done').length, stuck = all.filter(t => t.status === 'stuck').length, late = cnt('late');
+  let body = '';
+  if (v === 'board') body = `<div class="kanban">${Object.entries(TASK_ST).map(([k, [l, c]]) => { const col = list.filter(t => t.status === k);
+    return `<section class="kcol"><header class="${c}"><b>${l}</b><span>${col.length}</span></header><div class="kbody">${col.map(taskCard).join('') || '<p class="kempty">Nothing here</p>'}</div></section>`; }).join('')}</div>`;
+  else if (v === 'table'){
+    const groups = {}; list.forEach(t => (groups[t.dept || 'Whole production'] ||= []).push(t));
+    body = Object.entries(groups).sort().map(([g, ts], gi) => `<section class="tgroup g${gi % 6}"><h3>${esc(g)} <span>${ts.length}</span></h3><div class="tablewrap"><table class="ttable"><thead><tr><th>${ts.some(t => t.kind === 'issue') ? 'Task / issue' : 'Task'}</th><th>People</th><th>Status</th><th>Priority</th><th>Due</th><th>Updates</th></tr></thead><tbody>
+      ${ts.map(t => `<tr class="click" data-act="open-task" data-id="${t.id}"><td><b>${esc(t.title)}</b>${t.kind === 'issue' ? ' <span class="tag-issue">Issue</span>' : ''}</td><td>${faces(t.assignees, 4)}</td><td class="stcell ${TASK_ST[t.status][1]}">${TASK_ST[t.status][0]}</td><td><span class="prio ${PRIO[t.priority][1]}">${PRIO[t.priority][0]}</span></td><td>${dueChip(t) || '<span class="muted">—</span>'}</td><td class="num">${t.updates.filter(u => ['comment','solution'].includes(u.kind)).length || ''}</td></tr>`).join('')}
+    </tbody></table></div></section>`).join('') || '<div class="empty">No tasks match.</div>';
+  } else {
+    const ym = U.tmonth || ymOf(today()), first = new Date(ym + '-01T12:00'), lead = (first.getDay() + 6) % 7, dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    let cells = '';
+    for (let n = 1; n <= dim; n++){
+      const ds = `${ym}-${String(n).padStart(2, '0')}`, sd = S.days.find(d => d.pid === U.pid && d.date === ds), due = list.filter(t => t.due === ds || (sd && t.dayId === sd.id && !t.due));
+      cells += `<div class="tday${ds === today() ? ' today' : ''}${sd && sd.status !== 'cancelled' ? ' shoot' : ''}"><span class="n">${n}${sd && sd.status !== 'cancelled' ? `<span class="sd" title="Shoot day · call ${esc(sd.call)}">Shoot · ${esc(sd.call)}</span>` : ''}</span>
+        ${due.slice(0, 3).map(t => `<button class="tchip ${TASK_ST[t.status][1]}" data-act="open-task" data-id="${t.id}">${esc(t.title)}</button>`).join('')}${due.length > 3 ? `<span class="small muted">+${due.length - 3} more</span>` : ''}</div>`;
+    }
+    body = `<div class="row" style="justify-content:space-between"><div class="row"><button class="btn sm" data-act="tmonth" data-id="-1" aria-label="Previous month">${icon('back', 16)}</button><h2 style="min-width:170px;text-align:center">${ymLabel(ym)}</h2><button class="btn sm" data-act="tmonth" data-id="1" aria-label="Next month"><span style="display:inline-flex;transform:scaleX(-1)">${icon('back', 16)}</span></button><button class="btn ghost sm" data-act="tmonth" data-id="0">This month</button></div></div>
+      <section class="panel"><div class="tcal">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<span class="dow">${d}</span>`).join('')}${'<span></span>'.repeat(lead)}${cells}</div></section>`;
+  }
+  return `${projHead('Tasks', `<p class="muted">${isStaff(r) ? 'Production tasks and issues for everyone on the show. Issues collect proposed solutions until one is accepted.' : 'Tasks and issues you’re on. Update them as you go; the person who assigned them is told.'}</p>`)}
+  <div class="kpis kpis-sm"><div class="kpi"><span class="eyebrow">Open</span><span class="v">${open}</span></div><div class="kpi"><span class="eyebrow">Stuck</span><span class="v" style="color:var(--bad)">${stuck}</span></div><div class="kpi"><span class="eyebrow">Overdue</span><span class="v" style="color:var(--marigold)">${late}</span></div><div class="kpi"><span class="eyebrow">Mine</span><span class="v">${cnt('mine')}</span></div></div>
+  <div class="spread taskbar"><div class="seg" role="group" aria-label="View">${[['board','Board','board'],['table','Table','table'],['calendar','Calendar','cal']].map(([k, l, ic]) => `<button data-act="tv" data-id="${k}" aria-pressed="${v === k}">${icon(ic, 15)}${l}</button>`).join('')}</div>
+    <div class="row"><input type="search" class="search" placeholder="Search tasks or people" value="${esc(U.tq || '')}" data-input="tq" aria-label="Search tasks" style="max-width:220px">${can.taskHead(r) ? `<button class="btn primary" data-act="new-task">${icon('plus', 16)}New task</button>` : ''}</div></div>
+  <div class="filters">${[['all','All'],['mine','Assigned to me'],['issues','Issues'],['late','Overdue']].map(([k, l]) => `<button class="fchip" data-act="tf" data-id="${k}" aria-pressed="${(U.tf || 'all') === k}">${l}<span class="n">${cnt(k)}</span></button>`).join('')}</div>
+  <div id="task-body">${body}</div>`;
+}
+function taskDrawer(t){
+  if (!t) return '';
+  const r = myRole(), touch = taskTouch(t), head = can.taskHead(r) || t.by === S.session, sd = t.dayId && S.days.find(d => d.id === t.dayId);
+  const feed = [...t.updates].sort((a, b) => b.at - a.at);
+  return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="row" style="gap:6px">${t.kind === 'issue' ? '<span class="tag-issue">Issue</span>' : ''}<span class="prio ${PRIO[t.priority][1]}">${PRIO[t.priority][0]}</span></span></div>
+  <div class="stack" style="gap:6px"><p class="eyebrow">${esc(proj(t.pid).name)}${t.dept ? ' · ' + esc(t.dept) : ''}</p><h2>${esc(t.title)}</h2></div>
+  <div class="stpick" role="group" aria-label="Status">${Object.entries(TASK_ST).map(([k, [l, c]]) => `<button class="${c}" data-act="task-st" data-id="${t.id}" data-s="${k}" aria-pressed="${t.status === k}" ${touch ? '' : 'disabled'}>${l}</button>`).join('')}</div>
+  <section class="panel"><dl class="dl"><dt>Assigned</dt><dd>${t.assignees.map(u => `<span class="who">${av(user(u), 22)}${esc(user(u)?.name || '')}</span>`).join('') || '<span class="muted">Nobody yet</span>'}</dd>
+    <dt>Due</dt><dd>${t.due ? fmtD(t.due) + (t.status !== 'done' && t.due < today() ? ' <span class="chip bad">Overdue</span>' : '') : '—'}</dd>${sd ? `<dt>Shoot day</dt><dd><button class="linkbtn" style="margin:0" data-act="open-day" data-id="${sd.id}">${fmtD(sd.date)} · call ${esc(sd.call)}</button></dd>` : ''}
+    <dt>Raised by</dt><dd>${esc(user(t.by)?.name || '')} · ${fmtT(t.at)}</dd></dl>${t.details ? `<p class="tdetails">${esc(t.details)}</p>` : ''}</section>
+  ${head ? `<div class="row"><button class="btn sm" data-act="edit-task" data-id="${t.id}">Edit or reassign</button><button class="btn ghost sm danger" data-act="task-del" data-id="${t.id}">Delete</button></div>` : ''}
+  <section class="panel stack"><h3>${t.kind === 'issue' ? 'Solutions and updates' : 'Updates'}</h3>
+    ${touch || isStaff(r) ? `<form class="stack" data-form="taskupdate">${t.kind === 'issue' ? `<div class="seg kindseg" role="group" aria-label="Kind of update"><label><input type="radio" name="tu-kind" value="solution" checked><span>Propose a solution</span></label><label><input type="radio" name="tu-kind" value="comment"><span>Update</span></label></div>` : ''}
+      <textarea id="tu-body" rows="2" maxlength="2000" placeholder="${t.kind === 'issue' ? 'How could we solve this?' : 'What’s the latest?'}"></textarea><p class="err" id="tu-err"></p><button class="btn primary sm" type="submit" style="justify-self:start">Post</button></form>` : ''}
+    <ul class="tfeed">${feed.map(u => `<li class="k-${u.kind}${u.accepted ? ' acc' : ''}">${av(user(u.by), 26)}<div><span class="spread"><b>${esc(user(u.by)?.name || '')}</b><time>${fmtT(u.at)}</time></span>
+      ${u.kind === 'solution' ? `<span class="sol-tag">${u.accepted ? '✓ Accepted solution' : 'Proposed solution'}</span>` : ''}<p class="${['status','assign','accepted'].includes(u.kind) ? 'small muted' : ''}">${esc(u.body)}</p>
+      ${u.kind === 'solution' && !u.accepted && head && t.status !== 'done' ? `<button class="btn sm" data-act="task-accept" data-id="${u.id}">${icon('check', 14)}Accept this solution</button>` : ''}</div></li>`).join('') || '<li class="none muted small">No updates yet.</li>'}</ul></section>`;
 }
 
 /* ---------- monthly report */
@@ -834,7 +944,7 @@ function exportExcel(){
 function renderLayer(){
   const L = $('#layer');
   let html = '';
-  if (U.drawer) html += `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${U.drawer.type === 'person' ? personDrawer(member(U.drawer.id)) : U.drawer.type === 'day' ? dayDrawer(S.days.find(d => d.id === U.drawer.id)) : invoiceDrawer(S.invoices.find(i => i.id === U.drawer.id))}</aside>`;
+  if (U.drawer) html += `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${U.drawer.type === 'person' ? personDrawer(member(U.drawer.id)) : U.drawer.type === 'day' ? dayDrawer(S.days.find(d => d.id === U.drawer.id)) : U.drawer.type === 'task' ? taskDrawer((S.tasks || []).find(t => t.id === U.drawer.id)) : invoiceDrawer(S.invoices.find(i => i.id === U.drawer.id))}</aside>`;
   if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog dlg-${U.modal.type}">${modalBody()}</div></div>`;
   L.innerHTML = html;
 }
@@ -850,7 +960,7 @@ function removalPanel(m){
   return '';
 }
 const rmHistory = m => ['signed','countersigned'].includes(m.ag?.status) || S.invoices.some(i => i.memberId === m.id) || S.days.some(d => d.pid === m.pid && d.att.includes(m.userId));
-const rmOpen = m => S.invoices.some(i => i.memberId === m.id && ['submitted','hod_ok','approved'].includes(i.status));
+const rmOpen = m => S.invoices.some(i => i.memberId === m.id && ['submitted','audited','hop_ok','approved'].includes(i.status));
 function personDrawer(m){
   if (!m) return '';
   const u = user(m.userId), r = myRole(), s = stageOf(m), a = m.ag || {}, kyc = can.seeKyc(r) || u.id === S.session;
@@ -876,11 +986,20 @@ function personDrawer(m){
   <section class="panel"><h3>Invoices</h3>${invs.length ? `<ul class="feed">${invs.map(i => `<li><time class="mono">${esc(i.no)}</time><span>${inr(i.payable)} · <span class="chip ${INV[i.status][1]}">${INV[i.status][0]}</span></span></li>`).join('')}</ul>` : '<p class="muted">No invoices yet.</p>'}</section>
   ${can.audit(r) ? `<section class="panel"><h3>History</h3><ul class="feed">${hist.map(l => `<li><time>${fmtT(l.at)}</time><span><b>${esc(user(l.by)?.name || '')}</b> ${esc(lower(l.text))}${l.field ? ` <span class="diff"><del>${esc(fmtField(l.field, l.before))}</del> → <ins>${esc(fmtField(l.field, l.after))}</ins></span>` : ''}</span></li>`).join('') || '<li><span class="muted">No history yet.</span></li>'}</ul></section>` : ''}`;
 }
+// where an invoice is in the chain: each step with who and when, and what it is waiting for
+function chainBar(i, mini){
+  if (i.status === 'rejected') return `<div class="chain-rej"><b>Rejected</b> · ${esc(i.reason || '')}</div>`;
+  const at = CHAIN.findIndex(([k]) => k === i.status), who = {submitted:[i.by, i.at], audited:[i.auditedBy, i.auditedAt], hop_ok:[i.hopBy, i.hopAt], approved:[i.approvedBy, i.approvedAt], paid:[null, i.paidAt]};
+  const wait = {audited:'Auditor', hop_ok:'Head of Production', approved:'Commercial Head', paid:'CFO / Accounts'};
+  return `<ol class="chain${mini ? ' mini' : ''}" aria-label="Approval steps">${CHAIN.map(([k, l], n) => { const [u, t] = who[k] || [], st = n <= at ? 'done' : n === at + 1 ? 'now' : '';
+    return `<li class="${st}"><i>${st === 'done' ? icon('check', 12) : n + 1}</i>${mini ? '' : `<span><b>${l}</b><small>${st === 'done' ? `${u ? esc(user(u)?.name || '') + ' · ' : ''}${t ? fmtT(t) : ''}` : st === 'now' ? 'With the ' + wait[k] : '&nbsp;'}</small></span>`}</li>`; }).join('')}</ol>`;
+}
 function invoiceDrawer(i){
   if (!i) return '';
   const u = user(i.by), [l, c] = INV[i.status], acts = invActions(i), m = member(i.memberId);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
   <div class="stack" style="gap:4px"><p class="eyebrow">Invoice</p><h2 class="mono">${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
+  <section class="panel">${chainBar(i)}</section>
   <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}${i.remarks ? `<dt>Remarks</dt><dd>${esc(i.remarks)}</dd>` : ''}</dl>
     <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span>${(i.deductions || []).map(d => `<span>${esc(d.label)} · ${esc(d.note)}</span><span class="num">−${inr(d.amount)}</span>`).join('')}<span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
   ${canAdjust(i) ? `<div class="row"><button class="btn" data-act="adjust" data-id="${i.id}">Deductions & remarks</button></div>` : ''}
@@ -944,6 +1063,37 @@ function modalBody(){
     <form class="stack" data-form="rmdecide">${M.yes && m ? (rmOpen(m) ? '<p class="banner">They have an invoice in approval or waiting for payment. Pay or reject it first.</p>' : `<p class="small muted">${rmHistory(m) ? 'They have history, so they’ll be taken off the production and their records kept.' : 'They have no history, so they’ll be deleted outright.'}</p>`) : ''}
       <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Why keep them <span class="hint">the person who asked sees this</span>'}<textarea id="rm-note" rows="2" maxlength="500"></textarea></label>
       <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'unlockask'){
+    const d = S.days.find(x => x.id === M.id);
+    return `${head('Ask to change a locked day', `${fmtD(d.date)} · the Commercial Head and Commercial Managers are asked`)}
+    <form class="stack" data-form="unlockask"><label class="f">What needs changing, and why<textarea id="ul-why" rows="3" maxlength="500" placeholder="e.g. Rohit left at lunch; his check-in should be removed"></textarea></label>
+      <p class="err" id="ul-err"></p><div class="row"><button class="btn primary" type="submit">Send request</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'unlockdecide'){
+    const q = (S.unlocks || []).find(x => x.id === M.id), d = S.days.find(x => x.id === q?.dayId);
+    return `${head(M.yes ? `Allow changes to ${fmtD(d.date)}?` : `Refuse changes to ${fmtD(d.date)}`, `Asked by ${esc(user(q.by)?.name || '')}: ${esc(q.reason)}`)}
+    <form class="stack" data-form="unlockdecide"><p class="small muted">${M.yes ? 'The day opens for 24 hours. Every change is logged, and changed attendance goes back to the Auditor.' : 'The person who asked sees your reason.'}</p>
+      <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Reason'}<input type="text" id="ud-note" maxlength="300"></label>
+      <p class="err" id="ud-err"></p><div class="row"><button class="btn ${M.yes ? 'primary' : 'danger'}" type="submit">${M.yes ? 'Allow for 24 hours' : 'Refuse'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'task'){
+    const t = M.id ? (S.tasks || []).find(x => x.id === M.id) : {kind:'task', priority:'medium', dept:memberIn(U.pid, S.session)?.dept || '', assignees:[], due:'', dayId:''};
+    const hod = myRole() === 'hod', myDept = memberIn(U.pid, S.session)?.dept;
+    const people = S.members.filter(m => m.pid === U.pid && !m.removed && !m.pending && (!hod || m.dept === myDept || m.userId === S.session));
+    const byDept = {}; people.forEach(m => (byDept[m.dept || 'Production office'] ||= []).push(m));
+    const days = S.days.filter(d => d.pid === U.pid && d.status === 'planned' && d.date >= today()).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 40);
+    return `${head(M.id ? 'Edit task' : 'New task', 'The people you assign are told straight away.')}
+    <form class="stack" data-form="task">
+      <div class="seg kindseg" role="group" aria-label="Kind">${[['task','Task'],['issue','Issue (collects solutions)']].map(([k, l]) => `<label><input type="radio" name="tk-kind" value="${k}" ${t.kind === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+      <label class="f">Title<input type="text" id="tk-title" maxlength="140" value="${esc(t.title || '')}" placeholder="e.g. Book the crane for the climax"></label>
+      <label class="f">Details <span class="hint">optional</span><textarea id="tk-details" rows="3" maxlength="4000">${esc(t.details || '')}</textarea></label>
+      <div class="grid3"><label class="f">Priority<select id="tk-prio">${opt(Object.entries(PRIO).map(([k, v]) => [k, v[0]]), t.priority)}</select></label>
+        <label class="f">Due<input type="date" id="tk-due" value="${esc(t.due || '')}"></label>
+        <label class="f">Department<select id="tk-dept" ${hod ? 'disabled' : ''}><option value="">Whole production</option>${opt(Object.keys(DEPTS), hod ? myDept : t.dept)}</select></label></div>
+      <label class="f">Shoot day <span class="hint">optional · shows on the calendar</span><select id="tk-day"><option value="">Not tied to a shoot day</option>${opt(days.map(d => [d.id, `${fmtD(d.date)} · call ${d.call}`]), t.dayId || '')}</select></label>
+      <fieldset class="assign"><legend>Assign to</legend>${Object.entries(byDept).sort().map(([dp, ms]) => `<div class="agrp"><span class="eyebrow">${esc(dp)}</span>${ms.map(m => `<label class="pick"><input type="checkbox" name="tk-who" value="${m.userId}" ${t.assignees.includes(m.userId) ? 'checked' : ''}>${av(user(m.userId), 22)}<span>${esc(user(m.userId)?.name || '')}<small>${esc(m.job || ROLES[m.role]?.label || '')}</small></span></label>`).join('')}</div>`).join('')}</fieldset>
+      <p class="err" id="tk-err"></p><div class="row"><button class="btn primary" type="submit">${M.id ? 'Save task' : 'Create and notify'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'dayedit'){
     const d = S.days.find(x => x.id === M.id);
@@ -1078,11 +1228,11 @@ function answer(q){
   if (has('aadhaar','adhar','aadhar','pan','document','kyc','upload','photo')) return 'You need two photos:<ul><li><b>Masked Aadhaar</b>: download it from the myAadhaar site with “masked Aadhaar” ticked, so only the last 4 digits show. Don’t upload a full Aadhaar.</li><li><b>PAN card</b>: a clear photo of the front.</li></ul>Then type the last 4 Aadhaar digits, tick the consent box and save. Find this under <b>My setup → Aadhaar & PAN card</b>.';
   if (has('agreement','contract','sign','signature')) return 'The production sends your agreement once your deal, profile and documents are complete. Open <b>My setup → Agreement</b>, read it, type your full name and draw your signature. The CFO or Commercial Head then approves it, and your Crew ID appears.';
   if (has('tds','tax','gst','194')) return 'TDS is worked out on the fee <b>before GST</b>:<ul><li>194C contractor: 1% for an individual, 2% for a firm or company.</li><li>194J professional or creative fees: 10%. Technical services: 2%.</li></ul>GST (5–18%) is added only if you have a GSTIN. Payable = fee + GST − TDS. Accounts confirms the section in your deal.';
-  if (has('invoice','bill','approve','approval')) return 'Invoices go through three steps:<ol><li>The <b>HOD</b> of your department, or the Line Producer, checks the days.</li><li>The <b>CFO or Commercial Head</b> gives final approval.</li><li><b>Accounts</b> pays and records the bank reference (UTR).</li></ol>Nobody can approve their own invoice. If one is rejected, the reason is shown so you can fix it and resubmit.';
+  if (has('invoice','bill','approve','approval')) return 'Invoices go through four steps:<ol><li>The <b>Auditor</b> checks your days against the confirmed gate attendance.</li><li>The <b>Head of Production</b> confirms.</li><li>The <b>Commercial Head</b> or a Commercial Manager approves for payment.</li><li>The <b>CFO</b> or Accounts pays and records the bank reference (UTR).</li></ol>You get a notification at every step, and <b>My invoices</b> shows exactly where yours is. Nobody can approve their own invoice. If one is rejected, the reason is shown so you can fix it and resubmit.';
   if (has('paid','payment','money','when will','salary','fees')) return 'You’re paid within the payment terms in your deal (usually 30 days) after the invoice is approved. When Accounts pays, the UTR shows on your invoice so you can match it with your bank statement.';
   if (has('bank','privacy','who can see','visible','secure','data')) return 'Your PAN, Aadhaar copy and bank details are visible only to you, the <b>CFO</b>, the <b>Commercial Head</b> and <b>Accounts</b>. Other crew and HODs see only your name, job and a masked account number.';
   if (has('undo','revert','history','back track','backtrack','log','audit','changed')) return 'Every action is recorded in the <b>Activity log</b>: who did it, when, and the old and new values. The CFO or Commercial Head can undo a deal change (rate, dates, TDS) with one tap, and the undo is logged too.';
-  if (has('role','access','cfo','commercial','owner','permission')) return 'Owner access belongs to the <b>CFO</b> and the <b>Commercial Head</b>: they set deals, approve agreements and give final invoice approval. The Line Producer onboards people and sends agreements. HODs approve their own department’s invoices. See <b>Roles & access</b> for the full table.';
+  if (has('role','access','cfo','commercial','owner','permission')) return 'Owner access belongs to the <b>CFO</b> and the <b>Commercial Head</b>: they set deals and approve agreements. The <b>Auditor</b> confirms attendance and audits invoices, the <b>Head of Production</b> confirms them, the <b>Commercial Head or a Commercial Manager</b> approves them and allows changes to locked days, and the <b>CFO or Accounts</b> pays. The Line Producer onboards people, sends agreements and plans the schedule. Heads assign tasks. See <b>Who can do what</b> for the full table.';
   if (has('project','production','show','serial','episode','create')) return isOwner(me().title) ? 'Tap <b>New production</b> on Your productions. Pick the format (long-format fiction daily or weekly, web series, micro-drama and others), the episodes planned and the paying company. You become its owner and get an invite code.' : 'Productions are created by the CFO or Commercial Head. To join one, enter its invite code on <b>Your productions</b>.';
   if (has('video','tutorial','help page','how to use','how do i start','new here')) return `There’s a 2-minute video and a short guide: <a href="${HELP_URL}" target="_blank" rel="noopener">open the help page</a>. It shows signing in with Google, joining with the code, filling your details, signing the agreement and raising an invoice.`;
   if (has('hi','hello','hey','namaste')) return 'Hello! Ask me about onboarding, documents, agreements, invoices, TDS or payments.';
@@ -1122,6 +1272,19 @@ const ACT = {
   agk: el => { U.agk = el.dataset.id; U.agf = 'all'; render(); },
   agf: el => { U.agf = el.dataset.id; render(); },
   adjust: el => { U.modal = {type:'adjust', id:el.dataset.id}; renderLayer(); adjCalc(); },
+  'open-task': el => { U.drawer = {type:'task', id:el.dataset.id}; renderLayer(); },
+  'new-task': () => { U.modal = {type:'task'}; renderLayer(); },
+  'edit-task': el => { U.modal = {type:'task', id:el.dataset.id}; renderLayer(); },
+  tv: el => { U.tv = el.dataset.id; render(); },
+  tf: el => { U.tf = el.dataset.id; render(); },
+  tmonth: el => { const n = +el.dataset.id; U.tmonth = n ? addYm(U.tmonth || ymOf(today()), n) : ymOf(today()); render(); },
+  'task-st': el => { const t = S.tasks.find(x => x.id === el.dataset.id), st = el.dataset.s; if (!t || !taskTouch(t) || t.status === st) return;
+    t.updates.push({id:uid('tu'), by:S.session, kind:'status', body:`${TASK_ST[t.status][0]} → ${TASK_ST[st][0]}`, at:Date.now()}); t.status = st; t.doneAt = st === 'done' ? Date.now() : null;
+    log(U.pid, 'task', `“${t.title}”: ${TASK_ST[st][0]}`); done(`${TASK_ST[st][0]}`); },
+  'task-accept': el => { const t = S.tasks.find(x => x.updates.some(u => u.id === el.dataset.id)); if (!t) return;
+    t.updates.forEach(u => { if (u.kind === 'solution') u.accepted = u.id === el.dataset.id; }); t.status = 'done'; t.doneAt = Date.now();
+    t.updates.push({id:uid('tu'), by:S.session, kind:'accepted', body:'Accepted a solution and closed the issue', at:Date.now()}); log(U.pid, 'task', `Accepted a solution for “${t.title}”`); done('Solution accepted; issue closed'); },
+  'task-del': el => { const t = S.tasks.find(x => x.id === el.dataset.id); if (!t || !confirm('Delete this task?')) return; S.tasks = S.tasks.filter(x => x !== t); U.drawer = null; log(U.pid, 'task', `Deleted task “${t.title}”`); done('Task deleted'); },
   'day-edit': el => { U.modal = {type:'dayedit', id:el.dataset.id}; renderLayer(); },
   'day-cancel': el => { U.modal = {type:'daycancel', id:el.dataset.id}; renderLayer(); },
   'rm-open': el => { U.modal = {type:'remove', id:el.dataset.id}; renderLayer(); },
@@ -1141,8 +1304,17 @@ const ACT = {
     m.ag = {status:'sent', sentAt:Date.now(), text:agText(m)}; log(U.pid, 'agreement', `Sent the agreement to ${user(m.userId).name}`, {memberId:m.id}); done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: el => { const m = member(el.dataset.id); if (m.ag?.status !== 'signed' || !can.countersign(myRole())) return;
     Object.assign(m.ag, {status:'countersigned', counterAt:Date.now(), counterBy:S.session}); log(U.pid, 'agreement', `Approved ${user(m.userId).name}’s agreement`, {memberId:m.id}); done(`${user(m.userId).name} is onboarded`); },
-  'hod-ok': el => invStep(el.dataset.id, 'submitted', 'hod_ok', i => `HOD step approved ${i.no} (${user(i.by).name})`),
-  'final-ok': el => invStep(el.dataset.id, 'hod_ok', 'approved', i => `Approved ${i.no} for payment`),
+  'inv-step': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i || !stepOk(i, myRole()) || i.by === S.session) return toast('This invoice has already moved on.');
+    if (i.status === 'submitted' && i.unit === 'day'){ const ok = S.days.filter(d => d.pid === i.pid && d.confirmedAt && d.date >= i.from && d.date <= i.to && d.att.includes(i.by)).length;
+      if (ok < i.qty) return toast(`Only ${ok} confirmed day${ok === 1 ? '' : 's'} at the gate in this period, but the invoice claims ${i.qty}. Confirm the attendance first, or reject it.`); }
+    const nxt = {submitted:'audited', audited:'hop_ok', hop_ok:'approved'}[i.status], now = Date.now();
+    if (nxt === 'audited') Object.assign(i, {auditedBy:S.session, auditedAt:now}); else if (nxt === 'hop_ok') Object.assign(i, {hopBy:S.session, hopAt:now}); else Object.assign(i, {approvedBy:S.session, approvedAt:now});
+    i.status = nxt; log(U.pid, 'invoice', `${{audited:'Audited', hop_ok:'HOP confirmed', approved:'Approved for payment'}[nxt]} ${i.no} (${user(i.by).name})`, {invoiceId:i.id});
+    done(`${i.no}: ${INV[nxt][0].toLowerCase()}`); },
+  'att-confirm': el => { const d = S.days.find(x => x.id === el.dataset.id); if (!d || !can.confirmAtt(myRole())) return;
+    Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
+  'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id}; renderLayer(); },
+  'unlock-decide': el => { U.modal = {type:'unlockdecide', id:el.dataset.id, yes:!!el.dataset.yes}; renderLayer(); },
   pay: el => { U.modal = {type:'pay', id:el.dataset.id}; renderLayer(); },
   reject: el => { U.modal = {type:'reject', id:el.dataset.id}; renderLayer(); },
   month: el => { const n = +el.dataset.id; U.month = n ? addYm(U.month || ymOf(today()), n) : ymOf(today()); render(); },
@@ -1188,7 +1360,7 @@ function calcInv(){
   box.innerHTML = `<span>${qty} × ${inr(m.rate)}</span><span class="num">${inr(amount)}</span><span>GST ${g}%</span><span class="num">${inr(gst)}</span><span>TDS ${TDS[m.tds].rate}% on fee</span><span class="num">−${inr(tds)}</span><span class="tot">You receive</span><span class="num tot">${inr(amount + gst - tds)}</span>`;
   const a = $('#rv-att');
   if (a && m.unit === 'day'){ const n = attIn(U.pid, S.session, val('rv-from'), val('rv-to'));
-    a.innerHTML = qty > n ? `<span class="flag">Gate check-ins show ${n} day${n === 1 ? '' : 's'} for these dates.</span> Your HOD will see the difference.` : `<span style="color:var(--good)">✓ Matches gate check-ins: ${n} day${n === 1 ? '' : 's'}.</span>`; }
+    a.innerHTML = qty > n ? `<span class="flag">Gate check-ins show ${n} day${n === 1 ? '' : 's'} for these dates.</span> The Auditor checks this against confirmed attendance.` : `<span style="color:var(--good)">✓ Matches gate check-ins: ${n} day${n === 1 ? '' : 's'}.</span>`; }
 }
 
 function demoRemove(m, why){
@@ -1269,7 +1441,7 @@ const FORMS = {
     if (!(qty > 0)) return err('rv-err', `Enter the ${QTY[m.unit].toLowerCase()}.`); if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
     const amount = Math.round(qty * m.rate), gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
     const i = {id:uid('i'), pid:U.pid, memberId:m.id, by:S.session, dept:m.dept, no, from, to, qty, rate:m.rate, unit:m.unit, desc:val('rv-desc') || `${m.job}, ${fmtD(from)} to ${fmtD(to)}`, amount, gstRate:g, gst, tdsKey:m.tds, tds, payable:amount + gst - tds, status:'submitted', at:Date.now(), utr:'', reason:''};
-    S.invoices.push(i); log(U.pid, 'invoice', `Submitted invoice ${no} for ${inr(amount + gst)}`, {invoiceId:i.id}); U.modal = null; done(`Invoice ${no} submitted to your HOD`); },
+    S.invoices.push(i); log(U.pid, 'invoice', `Submitted invoice ${no} for ${inr(amount + gst)}`, {invoiceId:i.id}); U.modal = null; done(`Invoice ${no} submitted; the Auditor checks it first`); },
   pay: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
     if (v.length < 6) return err('md-err', 'Enter the bank reference (UTR) from the payment.');
     i.status = 'paid'; i.utr = v; i.paidAt = Date.now(); log(U.pid, 'payment', `Marked ${i.no} paid · UTR ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} marked paid`); },
@@ -1281,6 +1453,23 @@ const FORMS = {
     const t = items.reduce((a, d) => a + d.amount, 0); if (t > base) return err('dd-err', `Deductions can’t be more than the amount payable (${inr(base)}).`);
     Object.assign(i, {deductions:items, deduction:t, remarks:rem, payable:base - t});
     log(U.pid, 'invoice', `Updated ${i.no} (${user(i.by).name}): deductions ${inr(t)}${rem ? `, remark “${rem}”` : ''}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} saved · pays ${inr(base - t)}`); },
+  unlockask: () => { const d = S.days.find(x => x.id === U.modal.id), why = val('ul-why'); if (why.length < 4) return err('ul-err', 'Say what needs changing and why.');
+    (S.unlocks ||= []).push({id:uid('q'), pid:d.pid, dayId:d.id, by:S.session, reason:why, at:Date.now(), status:'pending'}); log(U.pid, 'schedule', `Asked to change locked day ${fmtD(d.date)}: ${why}`);
+    U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
+  unlockdecide: () => { const q = S.unlocks.find(x => x.id === U.modal.id), note = val('ud-note');
+    if (!U.modal.yes && note.length < 4) return err('ud-err', 'Say why, so the person who asked knows.');
+    Object.assign(q, U.modal.yes ? {status:'approved', decidedBy:S.session, decidedAt:Date.now(), expiresAt:Date.now() + 864e5, note} : {status:'declined', decidedBy:S.session, decidedAt:Date.now(), note});
+    log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
+  task: () => { const kind = document.querySelector('input[name=tk-kind]:checked')?.value || 'task', title = val('tk-title'), who = [...document.querySelectorAll('input[name=tk-who]:checked')].map(x => x.value);
+    if (title.length < 3) return err('tk-err', 'Give the task a title.');
+    const f = {title, kind, details:val('tk-details'), priority:val('tk-prio'), due:val('tk-due'), dept:myRole() === 'hod' ? memberIn(U.pid, S.session).dept : val('tk-dept'), dayId:val('tk-day') || null};
+    let t = U.modal.id && S.tasks.find(x => x.id === U.modal.id);
+    if (t){ const added = who.filter(u => !t.assignees.includes(u)); Object.assign(t, f, {assignees:who}); if (added.length) t.updates.push({id:uid('tu'), by:S.session, kind:'assign', body:'Assigned ' + added.map(u => user(u).name).join(', '), at:Date.now()}); }
+    else { t = {id:uid('t'), pid:U.pid, ...f, status:'todo', by:S.session, at:Date.now(), doneAt:null, assignees:who, updates:who.length ? [{id:uid('tu'), by:S.session, kind:'assign', body:'Assigned ' + who.map(u => user(u).name).join(', '), at:Date.now()}] : []}; (S.tasks ||= []).push(t); }
+    log(U.pid, 'task', `${U.modal.id ? 'Updated' : 'Created'} ${kind} “${title}”`); U.modal = null; U.drawer = {type:'task', id:t.id}; done(who.length ? 'Saved; the people assigned have been told' : 'Saved'); },
+  taskupdate: () => { const t = S.tasks.find(x => x.id === U.drawer.id), body = val('tu-body'), kind = document.querySelector('input[name=tu-kind]:checked')?.value || 'comment';
+    if (body.length < 2) return err('tu-err', 'Write something first.');
+    t.updates.push({id:uid('tu'), by:S.session, kind, body, at:Date.now()}); log(U.pid, 'task', `${kind === 'solution' ? 'Proposed a solution on' : 'Updated'} “${t.title}”`); done(kind === 'solution' ? 'Solution proposed' : 'Update posted'); },
   dayedit: () => { const d = S.days.find(x => x.id === U.modal.id), e1 = +val('de-ep1') || null, e2 = +val('de-ep2') || e1;
     if (!/^\d\d:\d\d$/.test(val('de-call')) || !/^\d\d:\d\d$/.test(val('de-wrap'))) return err('de-err', 'Enter times like 07:30.');
     if (e1 && e2 < e1) return err('de-err', 'The last episode can’t be before the first.');
@@ -1364,6 +1553,7 @@ document.addEventListener('keydown', e => {
 function obDept(d){ const job = $('#ob-job'); job.innerHTML = opt(DEPTS[d], ''); job.closest('label').firstChild.textContent = d === 'Vendors & Services' ? 'Service' : 'Job'; const k = $('#ob-kind'); if (k) k.value = kindOf(d, val('ob-role')); }
 document.addEventListener('submit', e => { const f = FORMS[e.target.dataset.form]; if (f){ e.preventDefault(); f(); } });
 document.addEventListener('input', e => {
+  if (e.target.dataset.input === 'tq'){ U.tq = e.target.value; clearTimeout(U.tqT); U.tqT = setTimeout(() => { const pos = e.target.selectionStart; render(); const el = document.querySelector('[data-input=tq]'); if (el){ el.focus(); el.setSelectionRange(pos, pos); } }, 250); }
   if (e.target.dataset.input === 'pq'){ U.pq = e.target.value; const tb = $('#people-rows'); if (tb) tb.innerHTML = peopleRows(); }
   if (e.target.id === 'rv-qty') U.qtyTouched = true;
   if ((e.target.id === 'rv-from' || e.target.id === 'rv-to') && !U.qtyTouched){ const m = memberIn(U.pid, S.session); if (m?.unit === 'day') $('#rv-qty').value = attIn(U.pid, S.session, val('rv-from'), val('rv-to')) || 1; }
@@ -1479,7 +1669,7 @@ async function liveDB(cfg){
 }
 
 /* ---------------------------------------------------------------- load what this person may see */
-S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
+S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], tasks:[], unlocks:[], session:null};
 function save(){}
 function log(){}                       // the database writes the activity log itself
 const urlCache = {};
@@ -1487,9 +1677,10 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems] = await Promise.all([
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
-    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests')]);
+    DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests'),
+    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks')]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -1518,12 +1709,17 @@ async function load(){
   next.invoices = invs.map(i => ({id:i.id, pid:i.production_id, memberId:i.crew_id, by:i.user_id, dept:i.dept || '', no:i.no, from:i.period_from, to:i.period_to, qty:+i.qty, rate:+i.rate, unit:i.unit,
     desc:i.descr || '', amount:+i.amount, gstRate:+i.gst_rate, gst:+i.gst, tdsKey:i.tds_key, tds:+i.tds, payable:+i.payable, status:i.status, at:ts(i.submitted_at),
     approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment,
-    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || ''}));
-  next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '',
+    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '',
+    auditedBy:i.audited_by, auditedAt:ts(i.audited_at), hopBy:i.hop_by, hopAt:ts(i.hop_at), approvedBy:i.approved_by}));
+  next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '', confirmedAt:ts(d.att_confirmed_at), confirmedBy:d.att_confirmed_by,
     att:checks.filter(c => c.day_id === d.id && !c.removed_at).map(c => c.user_id)}));
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
   next.log = acts.map(a => ({id:a.id, at:ts(a.at), by:a.by, pid:a.production_id, type:a.type, text:a.text, memberId:a.crew_id, invoiceId:a.invoice_id,
     field:a.field === 'end_date' ? 'end' : a.field, before:a.before, after:a.after, reverted:!!a.reverted_at}));
+  next.tasks = tks.map(t => ({id:t.id, pid:t.production_id, title:t.title, details:t.details || '', kind:t.kind, status:t.status, priority:t.priority, dept:t.dept || '', due:t.due || '',
+    dayId:t.day_id, by:t.created_by, at:ts(t.created_at), doneAt:ts(t.done_at), assignees:tas.filter(a => a.task_id === t.id).map(a => a.user_id),
+    updates:tus.filter(u => u.task_id === t.id).map(u => ({id:String(u.id), by:u.by, kind:u.kind, body:u.body, at:ts(u.at), accepted:!!u.accepted}))}));
+  next.unlocks = unl.map(q => ({id:q.id, pid:q.production_id, dayId:q.day_id, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, decidedBy:q.decided_by, decidedAt:ts(q.decided_at), expiresAt:ts(q.expires_at), note:q.note || ''}));
   next.removals = rems.map(q => ({id:q.id, pid:q.production_id, memberId:q.crew_id, person:q.person, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, note:q.note || ''}));
   next.notes = notes.map(n => ({id:n.id, pid:n.production_id, at:ts(n.at), kind:n.kind, title:n.title, body:n.body || '', view:n.view, read:!!n.read_at}));
   S = next;
@@ -1570,8 +1766,11 @@ Object.assign(ACT, {
   'send-ag': async el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
     if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
-  'hod-ok': el => step('hod_approve', el.dataset.id, 'sent on for final approval'),
-  'final-ok': el => step('final_approve', el.dataset.id, 'approved; Finance can pay it now'),
+  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id), r = await call('advance_invoice', {p_id:el.dataset.id}); if (r === FAIL) return; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'att-confirm': async el => { const n = await call('confirm_attendance', {p_day:el.dataset.id}); if (n !== FAIL) done(`Attendance confirmed · ${n} checked in`); },
+  'task-st': async el => { if (await call('set_task_status', {p_task:el.dataset.id, p_status:el.dataset.s}) !== FAIL) done(TASK_ST[el.dataset.s][0]); },
+  'task-accept': async el => { if (await call('accept_solution', {p_update:+el.dataset.id}) !== FAIL) done('Solution accepted; issue closed'); },
+  'task-del': async el => { if (!confirm('Delete this task?')) return; if (await call('delete_task', {p_task:el.dataset.id}) !== FAIL){ U.drawer = null; done('Task deleted'); } },
   revert: async el => { if (await call('revert_change', {p_log:+el.dataset.id}) !== FAIL) done('Change undone and logged'); },
   'day-status': async el => { if (await call('set_day_status', {p_day:el.dataset.id, p_status:el.dataset.s}) !== FAIL) done(`Day marked ${DAY[el.dataset.s][0].toLowerCase()}`); },
   uncheck: async el => { if (await call('remove_checkin', {p_day:el.dataset.id, p_user:el.dataset.u}) !== FAIL) done('Check-in removed'); },
@@ -1642,6 +1841,13 @@ Object.assign(FORMS, {
   rmask: async () => { if (await call('request_removal', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err') === FAIL) return; U.modal = null; done('Request sent to the CFO and Commercial Head'); },
   rmdecide: async () => { const r = await call('decide_removal', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('rm-note')}, 'rm-err'); if (r === FAIL) return;
     if (r !== 'declined') U.drawer = null; U.modal = null; done(r === 'declined' ? 'Kept; they’ve been told why' : r === 'deleted' ? 'Approved and deleted' : 'Approved; removed from the production'); },
+  unlockask: async () => { if (await call('request_day_unlock', {p_day:U.modal.id, p_reason:v('ul-why')}, 'ul-err') === FAIL) return; U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
+  unlockdecide: async () => { if (await call('decide_day_unlock', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('ud-note')}, 'ud-err') === FAIL) return; const y = U.modal.yes; U.modal = null; done(y ? 'Allowed for 24 hours' : 'Refused'); },
+  task: async () => { const who = [...document.querySelectorAll('input[name=tk-who]:checked')].map(x => x.value);
+    const id = await call('save_task', {p_production:U.pid, p:{id:U.modal.id || '', title:v('tk-title'), kind:document.querySelector('input[name=tk-kind]:checked')?.value || 'task', details:v('tk-details'),
+      priority:v('tk-prio'), due:v('tk-due'), dept:v('tk-dept'), day_id:v('tk-day'), assignees:who}}, 'tk-err');
+    if (id === FAIL) return; U.modal = null; U.drawer = {type:'task', id}; done(who.length ? 'Saved; the people assigned have been told' : 'Saved'); },
+  taskupdate: async () => { if (await call('add_task_update', {p_task:U.drawer.id, p_body:v('tu-body'), p_kind:document.querySelector('input[name=tu-kind]:checked')?.value || 'comment'}, 'tu-err') === FAIL) return; done('Posted'); },
   dayedit: async () => { const e1 = v('de-ep1'), e2 = v('de-ep2');
     if (await call('update_day', {p_day:U.modal.id, p:{call:v('de-call'), wrap:v('de-wrap'), location:v('de-loc'), note:v('de-note'), ep_from:e1, ep_to:e2 || e1}}, 'de-err') === FAIL) return;
     U.modal = null; done('Saved; the crew have been told about any change to the call, wrap or location'); },
@@ -1844,7 +2050,7 @@ async function boot(){
     if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id);
       // the first time someone signs in, show them the welcome video for their role (once, on any device)
       try { if (!U.modal && !(await DB.rpc('tour_status'))){ U.modal = {type:'welcome'}; DB.rpc('tour_done').catch(() => {}); } } catch {} }
-    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], session:null}; }
+    else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], tasks:[], unlocks:[], session:null}; }
     render();
   };
   DB.auth.onChange((event, u) => {

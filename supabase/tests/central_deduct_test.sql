@@ -11,13 +11,13 @@ select id as pid from productions limit 1 \gset
 select as_user(:'imran'); set role authenticated;
 select submit_crew_invoice(:'pid', '{"no":"IS-2","from":"2026-10-07","to":"2026-10-08","qty":2}') as inv \gset
 select ok((select payable from crew_invoices where id = :'inv') = 8910, 'payable starts as fee + GST − TDS');
-select refused(format($$select set_invoice_adjustments(%L, '[]', 'mine')$$, :'inv'), 'Only the Line Producer');
+select refused(format($$select set_invoice_adjustments(%L, '[]', 'mine')$$, :'inv'), 'Only the production office');
 reset role;
 select as_user(:'asha'); set role authenticated;
-select refused(format($$select set_invoice_adjustments(%L, '[]', 'x')$$, :'inv'), 'Only the Line Producer');
+select refused(format($$select set_invoice_adjustments(%L, '[]', 'x')$$, :'inv'), 'Only the production office');
 reset role;
 select as_user(:'stranger'); set role authenticated;
-select refused(format($$select set_invoice_adjustments(%L, '[]', 'x')$$, :'inv'), 'Only the Line Producer');
+select refused(format($$select set_invoice_adjustments(%L, '[]', 'x')$$, :'inv'), 'Only the production office');
 reset role;
 select as_user(:'manoj'); set role authenticated;
 select refused(format($$select set_invoice_adjustments(%L, '[{"type":"bribe","amount":10,"note":"abc"}]', null)$$, :'inv'), 'Pick what each deduction');
@@ -30,10 +30,14 @@ select ok(set_invoice_adjustments(:'inv', '[{"type":"advance","amount":2000,"not
 select ok((select deduction = 2500 and payable = 6410 and remarks = 'Please return the whip' and jsonb_array_length(deductions) = 2 and tds = 90
              from crew_invoices where id = :'inv'), 'payable, deductions and remark are stored; TDS is unchanged');
 select ok(exists (select 1 from activity where text like 'Updated IS-2%deductions ₹2500%'), 'the change is in the activity log');
-select hod_approve(:'inv');
 reset role;
-select as_user(:'ritika'); set role authenticated;
-select final_approve(:'inv');
+insert into shoot_days (production_id, day, status, att_confirmed_at) select :'pid', d::date, 'shot', now() from generate_series('2026-10-07'::date, '2026-10-08'::date, '1 day') d;
+insert into checkins (day_id, user_id) select id, :'imran' from shoot_days where day between '2026-10-07' and '2026-10-08';
+select as_user(:'manoj'); set role authenticated;
+select advance_invoice(:'inv'); select advance_invoice(:'inv');
+reset role;
+select as_user('11111111-1111-1111-1111-111111111111'); set role authenticated;
+select advance_invoice(:'inv');
 reset role;
 select as_user(:'neha'); set role authenticated;
 select ok(set_invoice_adjustments(:'inv', '[{"type":"advance","amount":2000,"note":"Advance paid on 2 Oct"}]', null) = 6910, 'Accounts can change deductions before paying');
