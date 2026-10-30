@@ -92,6 +92,9 @@ The site root is now **CrewDesk Central**: company set up once, production codes
 - Database: `supabase/tests/central_test.sql` and `central_notify_test.sql`, 118 checks run as each role on Postgres 16 (see the file header for the run order).
 - End to end: `tests/live-e2e.mjs` runs the real screens in Chromium against the real schema in PGlite: company setup, production, invites, sign-up and joining by code, profile and document uploads, agreement send/sign/approve, gate check-in, invoice from check-ins, approvals, payment run, Tally batch, Excel, then a second device receiving the owner's change live.
 
-## Help page and setup video
+## Help page and welcome videos
 
-`/help/` is a static page with a 2-minute video for crew (sign in with Google, join with the code, profile, documents, agreement, Crew ID, invoice, notifications) and a short guide for each role. The video is recorded from the real screens against the real database rules: `PGLITE=… node tools/record-guide.mjs` writes `help/crewdesk-setup.mp4` and its poster (needs ffmpeg). Re-record it whenever those screens change.
+`/help/` has two videos, each with a "jump to a step" list: one for crew, artists and vendors (phone) and one for the production office (laptop), plus a guide per role and common questions. The first time anyone signs in, the app shows the video for their role once (remembered in `profiles.tour_seen_at`, so not again on another device); it can be watched again from the name menu.
+
+Both videos are recorded from the real screens against the real database rules, so re-record them whenever those screens change:
+`PGLITE=… node tools/record-guide.mjs crew` and `… office` (needs ffmpeg). Each writes `help/<name>.mp4`, a poster and the chapter times.

@@ -288,7 +288,8 @@ function projectsView(){
   if (!S.company && can.company(u)) return `<div class="head"><div class="t"><p class="eyebrow">Step 1 of 2 · one-time setup</p><h1>Your company details</h1>
     <p class="muted" style="max-width:62ch">Entered once by the CFO or Commercial Head. Every production, agreement, invoice and Tally export uses them, so nobody types them again.</p></div></div>
     <section class="panel">${companyForm()}</section>`;
-  return `<div class="head"><div class="t"><p class="eyebrow">${mine.length ? 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0]) : 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '')}</p><h1>${mine.length ? 'Your productions' : 'Let’s get you on set'}</h1></div>
+  const newbie = !mine.length && !can.createProject(u);
+  return `<div class="head"><div class="t"><p class="eyebrow">${newbie ? 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '') : 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0])}</p><h1>${newbie ? 'Let’s get you on set' : 'Your productions'}</h1></div>
     <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
   ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
   ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
@@ -301,14 +302,14 @@ function projectsView(){
       <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
     </button>`; }).join('')}</div>` : ''}
   <section class="panel joinp stack">
-    <div class="stack" style="gap:4px"><h2>${mine.length ? 'Join another production' : 'Join your production'}</h2>
-      <p class="muted">${mine.length ? 'Got a code for a new show? Enter it here.' : 'Enter the production code your Line Producer or Head of Production sent you on WhatsApp.'}</p></div>
+    <div class="stack" style="gap:4px"><h2>${newbie ? 'Join your production' : 'Join another production'}</h2>
+      <p class="muted">${newbie ? 'Enter the production code your Line Producer or Head of Production sent you on WhatsApp.' : 'Got a code for a show someone else created? Enter it here.'}</p></div>
     <form class="stack" data-form="join">
       <label class="f">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" autocapitalize="characters" class="mono code-in"></label>
       ${me().phone ? '' : `<label class="f">Your mobile number <span class="hint">the one your Line Producer has, so we find your invite</span><input type="tel" id="join-phone" autocomplete="tel" inputmode="tel" placeholder="98200 00000"></label>`}
       <label class="f">I’m joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label>
       <p class="err" id="join-err"></p><button class="btn primary big" type="submit">Join production</button></form>
-    ${mine.length ? '' : helpLink()}</section>`;
+    ${newbie ? helpLink() : ''}</section>`;
 }
 function projHead(title, sub = ''){
   const p = proj(U.pid);
@@ -822,7 +823,7 @@ function renderLayer(){
   const L = $('#layer');
   let html = '';
   if (U.drawer) html += `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${U.drawer.type === 'person' ? personDrawer(member(U.drawer.id)) : U.drawer.type === 'day' ? dayDrawer(S.days.find(d => d.id === U.drawer.id)) : invoiceDrawer(S.invoices.find(i => i.id === U.drawer.id))}</aside>`;
-  if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog">${modalBody()}</div></div>`;
+  if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog dlg-${U.modal.type}">${modalBody()}</div></div>`;
   L.innerHTML = html;
 }
 function removalPanel(m){
@@ -1523,6 +1524,7 @@ const GOOGLE_G = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="t
 Object.assign(ACT, {
   'rm-withdraw': async el => { if (await call('withdraw_removal', {p_request:el.dataset.id}) !== FAIL) done('Request withdrawn'); },
   'rm-restore': async el => { if (await call('restore_person', {p_crew:el.dataset.id}) !== FAIL) done('Restored to the production'); },
+  help: () => { U.menu = false; U.modal = {type:'welcome'}; render(); },
   'set-pass': () => { U.menu = false; U.modal = {type:'newpass'}; render(); },
   google: async () => { try { await DB.auth.google(); } catch (e) { toast(friendly(e.message)); } },
   'demo-login': () => {}, reset: () => {}, 'reset-empty': () => {},
@@ -1709,6 +1711,20 @@ modalBody = function(){
   if (M.type === 'admin') return `${head('Give owner access', 'Owners see and run every production: deals, agreements, final approvals and company details.')}
     <form class="stack" data-form="admin"><div class="grid2"><label class="f">Their username or email<input type="text" id="ad-user" autocomplete="off"></label><label class="f">As<select id="ad-role"><option value="cfo">CFO</option><option value="commercial">Commercial Head</option></select></label></div>
     <p class="small muted">They need a CrewDesk account first.</p><p class="err" id="ad-err"></p><div class="row"><button class="btn primary" type="submit">Give access</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  if (M.type === 'welcome'){
+    const u = me(), office = isOwner(u.title) || S.members.some(m => m.userId === S.session && isStaff(m.role)), first = (u.name || '').split(' ')[0];
+    const steps = office
+      ? [['Set up once', 'Company details, then a production. Each show gets its own joining code.'], ['Onboard people', 'Set the deal and send the invite on WhatsApp. They fill their own details.'], ['Agreements and the schedule', 'Send agreements, approve them, plan shoot days and check people in.'], ['Invoices to Tally', 'Approve invoices, add deductions, pay in one run and send to Tally.']]
+      : [['Join your show', 'Enter the production code and your mobile number.'], ['Fill your details', 'Photo, PAN, bank account, then Aadhaar and PAN card photos.'], ['Sign your agreement', 'You get a notification when it’s ready.'], ['Get paid', 'Show your Crew ID at the gate, then raise your invoice in a few taps.']];
+    return `<div class="welcome ${office ? 'land' : 'port'}">
+      <div class="w-video"><video src="/help/${office ? 'crewdesk-office' : 'crewdesk-setup'}.mp4" poster="/help/${office ? 'crewdesk-office' : 'crewdesk-setup'}.jpg" controls playsinline preload="metadata" aria-label="Welcome video"></video></div>
+      <div class="w-text"><button class="btn ghost sm w-x" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button>
+        <p class="eyebrow">Welcome to CrewDesk${first ? ', ' + esc(first) : ''}</p><h2>${office ? 'Run your production office in one place' : 'You’ll be set up in 2 minutes'}</h2>
+        <p class="muted">${office ? 'Watch how a show runs from invite to payment, then try it.' : 'Watch the short video, then follow the steps on your screen.'}</p>
+        <ol class="w-steps">${steps.map(([t, d]) => `<li><b>${esc(t)}</b><span>${esc(d)}</span></li>`).join('')}</ol>
+        <div class="row"><button class="btn primary" data-act="close-modal">Get started</button><a class="btn ghost" href="/help/" target="_blank" rel="noopener">Open the full guide</a></div>
+        <p class="small muted">Watch it again any time: your name, top right → How to use CrewDesk.</p></div></div>`;
+  }
   if (M.type === 'newpass') return `${head('Choose a new password')}<form class="stack" data-form="newpass"><label class="f">New password <span class="hint">at least 8 characters</span><input type="password" id="np-pass" autocomplete="new-password"></label><p class="err" id="npw-err"></p><button class="btn primary" type="submit" style="justify-self:start">Save password</button></form>`;
   return demoModal();
 };
@@ -1785,7 +1801,9 @@ async function boot(){
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
     S.session = u?.id || null;
-    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); }
+    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id);
+      // the first time someone signs in, show them the welcome video for their role (once, on any device)
+      try { if (!U.modal && !(await DB.rpc('tour_status'))){ U.modal = {type:'welcome'}; DB.rpc('tour_done').catch(() => {}); } } catch {} }
     else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], session:null}; }
     render();
   };

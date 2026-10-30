@@ -22,6 +22,9 @@ await db.exec(read('supabase/migrations/20261031100000_notifications.sql'));
 await db.exec(read('supabase/migrations/20261101100000_deductions_and_lists.sql'));
 await db.exec(read('supabase/migrations/20261102100000_google_signin.sql'));
 await db.exec(read('supabase/migrations/20261103100000_removals.sql'));
+await db.exec(read('supabase/migrations/20261104100000_welcome_tour.sql'));
+// scripted runs start with the welcome video already seen; a test turns it back on where it checks it
+await db.exec('alter table profiles alter column tour_seen_at set default now(); update profiles set tour_seen_at = now()');
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
 const retType = {};
 let q = Promise.resolve();

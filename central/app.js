@@ -430,7 +430,8 @@ function projectsView(){
   if (!S.company && can.company(u)) return `<div class="head"><div class="t"><p class="eyebrow">Step 1 of 2 · one-time setup</p><h1>Your company details</h1>
     <p class="muted" style="max-width:62ch">Entered once by the CFO or Commercial Head. Every production, agreement, invoice and Tally export uses them, so nobody types them again.</p></div></div>
     <section class="panel">${companyForm()}</section>`;
-  return `<div class="head"><div class="t"><p class="eyebrow">${mine.length ? 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0]) : 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '')}</p><h1>${mine.length ? 'Your productions' : 'Let’s get you on set'}</h1></div>
+  const newbie = !mine.length && !can.createProject(u);
+  return `<div class="head"><div class="t"><p class="eyebrow">${newbie ? 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '') : 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0])}</p><h1>${newbie ? 'Let’s get you on set' : 'Your productions'}</h1></div>
     <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
   ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
   ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
@@ -443,14 +444,14 @@ function projectsView(){
       <div class="stats"><span><b>${act}</b>/${mems.length} onboarded</span>${td ? `<span style="color:var(--marigold)"><b style="color:inherit">${td}</b> waiting on you</span>` : '<span>Nothing waiting on you</span>'}</div>
     </button>`; }).join('')}</div>` : ''}
   <section class="panel joinp stack">
-    <div class="stack" style="gap:4px"><h2>${mine.length ? 'Join another production' : 'Join your production'}</h2>
-      <p class="muted">${mine.length ? 'Got a code for a new show? Enter it here.' : 'Enter the production code your Line Producer or Head of Production sent you on WhatsApp.'}</p></div>
+    <div class="stack" style="gap:4px"><h2>${newbie ? 'Join your production' : 'Join another production'}</h2>
+      <p class="muted">${newbie ? 'Enter the production code your Line Producer or Head of Production sent you on WhatsApp.' : 'Got a code for a show someone else created? Enter it here.'}</p></div>
     <form class="stack" data-form="join">
       <label class="f">Production code<input type="text" id="join-code" placeholder="e.g. SATH-7Q4K" autocomplete="off" autocapitalize="characters" class="mono code-in"></label>
       ${me().phone ? '' : `<label class="f">Your mobile number <span class="hint">the one your Line Producer has, so we find your invite</span><input type="tel" id="join-phone" autocomplete="tel" inputmode="tel" placeholder="98200 00000"></label>`}
       <label class="f">I’m joining as<select id="join-kind"><option value="crew">Crew</option><option value="cast">Artist</option><option value="vendor">Vendor / service</option></select></label>
       <p class="err" id="join-err"></p><button class="btn primary big" type="submit">Join production</button></form>
-    ${mine.length ? '' : helpLink()}</section>`;
+    ${newbie ? helpLink() : ''}</section>`;
 }
 function projHead(title, sub = ''){
   const p = proj(U.pid);
@@ -964,7 +965,7 @@ function renderLayer(){
   const L = $('#layer');
   let html = '';
   if (U.drawer) html += `<div class="scrim" data-act="close"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${U.drawer.type === 'person' ? personDrawer(member(U.drawer.id)) : U.drawer.type === 'day' ? dayDrawer(S.days.find(d => d.id === U.drawer.id)) : invoiceDrawer(S.invoices.find(i => i.id === U.drawer.id))}</aside>`;
-  if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog">${modalBody()}</div></div>`;
+  if (U.modal) html += `<div class="modal" role="dialog" aria-modal="true"><div class="scrim" data-act="close-modal"></div><div class="dialog dlg-${U.modal.type}">${modalBody()}</div></div>`;
   L.innerHTML = html;
 }
 function removalPanel(m){

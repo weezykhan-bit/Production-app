@@ -1,0 +1,47 @@
+[
+ {
+  "n": 1,
+  "t": 3,
+  "title": "Open the CrewDesk link your Line Producer sent you"
+ },
+ {
+  "n": 2,
+  "t": 10.1,
+  "title": "Enter the production code and your mobile number"
+ },
+ {
+  "n": 3,
+  "t": 17.2,
+  "title": "You’re in. This page shows what’s left to do"
+ },
+ {
+  "n": 4,
+  "t": 22.2,
+  "title": "Fill your details exactly as on your PAN card and bank account"
+ },
+ {
+  "n": 5,
+  "t": 36.7,
+  "title": "Upload photos of your Aadhaar and PAN card"
+ },
+ {
+  "n": 6,
+  "t": 55.4,
+  "title": "Read your agreement, type your name and sign with your finger"
+ },
+ {
+  "n": 7,
+  "t": 69.4,
+  "title": "This is your Crew ID"
+ },
+ {
+  "n": 8,
+  "t": 75,
+  "title": "To get paid, raise an invoice in My invoices"
+ },
+ {
+  "n": 9,
+  "t": 88.7,
+  "title": "The bell tells you when it’s checked, approved and paid"
+ }
+]

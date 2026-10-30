@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>CrewDesk Help</title>
-<meta name="description" content="How to set up your CrewDesk account and use it on set: a 2-minute video and a short guide.">
+<meta name="description" content="Short videos and a guide for crew, artists, vendors and the production office: setting up, onboarding, agreements, invoices and payments.">
 <link rel="icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -9,107 +9,161 @@
 <style>
 :root{
   --bg:#F2F5F5; --surface:#FFFFFF; --surface-2:#E7EDED; --line:#D2DBDB; --fg:#13211F; --muted:#56696A;
-  --accent:#0B6B66; --accent-ink:#FFFFFF; --accent-soft:#D3EAE7; --marigold:#B87A06; --marigold-soft:#F6E7C6;
-  --shadow:0 1px 2px rgb(10 30 30 / .06),0 8px 24px rgb(10 30 30 / .08);
+  --accent:#0B6B66; --accent-ink:#FFFFFF; --accent-soft:#D3EAE7; --gold:#7A5104; --gold-soft:#F6E7C6; --deep:#073F3C;
+  --shadow:0 1px 2px rgb(10 30 30 / .06),0 12px 32px rgb(10 30 30 / .10);
   --f-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif; --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0C1515; --surface:#132020; --surface-2:#1A2A2A; --line:#2A3C3C; --fg:#E3EDEC; --muted:#8FA4A3;
-  --accent:#43B8AE; --accent-ink:#04211F; --accent-soft:#133A37; --marigold:#E7B341; --marigold-soft:#3A2E12;
-  --shadow:0 1px 2px rgb(0 0 0 / .4),0 8px 24px rgb(0 0 0 / .35); color-scheme:dark}}
+  --accent:#43B8AE; --accent-ink:#04211F; --accent-soft:#133A37; --gold:#E7B341; --gold-soft:#3A2E12; --deep:#04211F;
+  --shadow:0 1px 2px rgb(0 0 0 / .4),0 12px 32px rgb(0 0 0 / .35); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0C1515; --surface:#132020; --surface-2:#1A2A2A; --line:#2A3C3C; --fg:#E3EDEC; --muted:#8FA4A3;
-  --accent:#43B8AE; --accent-ink:#04211F; --accent-soft:#133A37; --marigold:#E7B341; --marigold-soft:#3A2E12;
-  --shadow:0 1px 2px rgb(0 0 0 / .4),0 8px 24px rgb(0 0 0 / .35); color-scheme:dark}
+  --accent:#43B8AE; --accent-ink:#04211F; --accent-soft:#133A37; --gold:#E7B341; --gold-soft:#3A2E12; --deep:#04211F;
+  --shadow:0 1px 2px rgb(0 0 0 / .4),0 12px 32px rgb(0 0 0 / .35); color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 var(--f-body);-webkit-text-size-adjust:100%}
 a{color:var(--accent)}
-.wrap{max-width:1040px;margin:0 auto;padding:0 max(16px,env(safe-area-inset-left,0px))}
-header{border-bottom:1px solid var(--line);background:var(--surface)}
+[hidden]{display:none!important}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:12px}
 .brand{display:flex;align-items:center;gap:10px;font:700 18px var(--f-display);color:var(--fg);text-decoration:none}
 .brand i{display:grid;place-items:center;width:32px;height:32px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:700 13px var(--f-display);font-style:normal}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9px;padding:10px 16px;font:600 15px var(--f-body);text-decoration:none;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;padding:10px 16px;font:600 15px var(--f-body);text-decoration:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-h1,h2,h3{font-family:var(--f-display);line-height:1.15;margin:0}
-h1{font-size:clamp(30px,5vw,44px)} h2{font-size:24px} h3{font-size:17px}
-.eyebrow{font:500 12px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
-.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:40px;align-items:center;padding:40px 0 32px}
-.hero p.lead{font-size:18px;color:var(--muted);margin:14px 0 22px;max-width:52ch}
-.phone{border-radius:28px;background:#0f1d1c;padding:10px;box-shadow:var(--shadow);max-width:340px;justify-self:center;width:100%}
-.phone video{display:block;width:100%;aspect-ratio:390/844;border-radius:20px;background:#0b6b66;object-fit:cover}
-.tags{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
-.tags li{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:14px;color:var(--muted)}
-section{padding:28px 0;border-top:1px solid var(--line)}
-.steps{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
-.steps li{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:start}
-.steps li b{grid-row:span 2;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:700 15px var(--f-display)}
-.steps li span{font-weight:600}
-.steps li small{color:var(--muted);font-size:14px;line-height:1.45}
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;margin-top:18px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
-.card h3{margin-bottom:8px}
+h1,h2,h3{font-family:var(--f-display);line-height:1.12;margin:0;letter-spacing:-.01em}
+h2{font-size:clamp(22px,3vw,28px)} h3{font-size:17px}
+.eyebrow{font:500 12px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+
+.hero{background:radial-gradient(110% 90% at 15% 0%,#14857d 0%,#0b6b66 42%,#073f3c 100%);color:#fff}
+.hero .wrap{padding-block:44px 52px;display:grid;gap:14px}
+.hero .eyebrow{color:#f2c46a}
+.hero h1{font-size:clamp(32px,5.4vw,54px);max-width:18ch}
+.hero p{font-size:18px;opacity:.88;margin:0;max-width:58ch}
+.seg{display:inline-flex;gap:6px;padding:5px;border-radius:12px;background:rgb(255 255 255 / .12);margin-top:10px;justify-self:start;flex-wrap:wrap}
+.seg button{border:0;border-radius:9px;padding:10px 16px;font:600 15px var(--f-body);background:transparent;color:#fff;cursor:pointer}
+.seg button[aria-selected="true"]{background:#fff;color:var(--deep)}
+.seg button small{display:block;font-weight:400;font-size:12px;opacity:.9}
+
+.watch{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:28px;align-items:start;margin-top:-30px}
+.frame{background:#0f1d1c;border-radius:20px;padding:10px;box-shadow:var(--shadow)}
+.frame video{display:block;width:100%;border-radius:12px;background:#0b6b66}
+.frame.port{max-width:360px;justify-self:center;border-radius:30px}
+.frame.port video{aspect-ratio:390/844;border-radius:22px}
+.frame.land video{aspect-ratio:16/10}
+.side{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);display:grid;gap:12px}
+.side h3{font-size:18px}
+.chapters{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.chapters button{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;border:0;background:none;padding:8px 8px;border-radius:9px;cursor:pointer;color:inherit;font:inherit}
+.chapters button:hover{background:var(--surface-2)}
+.chapters button.now{background:var(--accent-soft)}
+.chapters .n{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:700 13px var(--f-display)}
+.chapters button.now .n{background:var(--accent);color:var(--accent-ink)}
+.chapters .t{font-size:14.5px;line-height:1.35}
+.chapters time{font:500 12px var(--f-mono);color:var(--muted)}
+.need{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.need li{background:var(--gold-soft);color:var(--gold);border-radius:999px;padding:4px 11px;font-size:13px;font-weight:600}
+
+section{padding:44px 0 8px}
+section>p.lede{color:var(--muted);margin:8px 0 0;max-width:62ch}
+.steps{list-style:none;margin:20px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;counter-reset:s}
+.steps li{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px}
+.steps li::before{content:counter(s);grid-row:span 2;display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font:700 15px var(--f-display)}
+.steps b{font-weight:600}
+.steps span{color:var(--muted);font-size:14.5px;line-height:1.45}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;margin-top:20px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+.card h3{margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.card h3 i{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-style:normal;font-size:15px}
 .card ul{margin:0;padding-left:18px;color:var(--muted);font-size:15px}
-.card li{margin:4px 0}
+.card li{margin:5px 0}
 .card li b{color:var(--fg);font-weight:600}
 details{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 18px;margin-top:10px}
-summary{cursor:pointer;padding:14px 0;font-weight:600}
-details p{margin:0 0 14px;color:var(--muted)}
-footer{padding:28px 0 calc(40px + env(safe-area-inset-bottom,0px));color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
-@media (max-width:760px){ .hero{grid-template-columns:minmax(0,1fr);gap:24px;padding-top:24px} .phone{max-width:300px} }
+summary{cursor:pointer;padding:15px 0;font-weight:600}
+details p{margin:0 0 15px;color:var(--muted)}
+.cta{margin:48px 0 0;border-radius:20px;background:var(--deep);color:#fff;padding:30px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+.cta h2{color:#fff}
+.cta p{margin:6px 0 0;opacity:.9}
+.cta .btn.primary{background:#fff;color:var(--deep);border-color:#fff}
+footer{padding:28px 0 calc(40px + env(safe-area-inset-bottom,0px));color:var(--muted);font-size:14px}
+@media (max-width:820px){ .watch{grid-template-columns:minmax(0,1fr);margin-top:-24px} .frame.land{border-radius:14px;padding:6px} }
 </style>
 </head>
 <body>
 <header><div class="wrap"><a class="brand" href="/"><i>CD</i>CrewDesk</a><a class="btn primary" href="/">Open CrewDesk</a></div></header>
+
+<div class="hero"><div class="wrap">
+  <p class="eyebrow">Help centre</p>
+  <h1>Everything you need, in a few minutes</h1>
+  <p>Pick your video. Each one is recorded from the real app, step by step.</p>
+  <div class="seg" role="tablist" aria-label="Choose a video">
+    <button role="tab" data-video="crewdesk-setup" aria-selected="true">Crew, artists &amp; vendors<small>Set up your account · 2 min</small></button>
+    <button role="tab" data-video="crewdesk-office" aria-selected="false">Production office<small>Invite to payment · 3 min</small></button>
+  </div>
+</div></div>
+
 <main class="wrap">
-  <div class="hero">
-    <div>
-      <p class="eyebrow">Help · for crew, artists and vendors</p>
-      <h1>Set up your CrewDesk account in 2 minutes</h1>
-      <p class="lead">Watch the video, then open the link your Line Producer sent you. You need your production code, your PAN card, your bank details and a photo of your Aadhaar.</p>
-      <ul class="tags"><li>Works on any phone</li><li>Sign in with Google</li><li>Your details stay private</li></ul>
-    </div>
-    <div class="phone"><video src="crewdesk-setup.mp4" poster="crewdesk-setup.jpg" controls playsinline preload="metadata" aria-label="Video: setting up your CrewDesk account"></video></div>
+  <div class="watch">
+    <div class="frame port" id="frame"><video id="guide-video" controls playsinline preload="metadata" aria-label="CrewDesk guide video"></video></div>
+    <aside class="side">
+      <h3>Jump to a step</h3>
+      <ol class="chapters" id="chapters"></ol>
+      <div data-for="crewdesk-setup"><p class="eyebrow" style="margin:6px 0 8px">Keep these handy</p>
+        <ul class="need"><li>Production code</li><li>PAN card</li><li>Bank account &amp; IFSC</li><li>Aadhaar (masked)</li><li>A clear photo</li></ul></div>
+      <div data-for="crewdesk-office" hidden><p class="eyebrow" style="margin:6px 0 8px">Before you start</p>
+        <ul class="need"><li>Company PAN &amp; TAN</li><li>GSTIN</li><li>Bank details</li><li>Crew list &amp; rates</li></ul></div>
+    </aside>
   </div>
 
-  <section aria-labelledby="setup">
-    <h2 id="setup">Your first time</h2>
+  <section data-for="crewdesk-setup" aria-labelledby="setup">
+    <h2 id="setup">Your first time, in six steps</h2>
+    <p class="lede">Most people finish in under five minutes on their phone.</p>
     <ol class="steps">
-      <li><b>1</b><span>Sign in with Google</span><small>Open the link and tap <em>Continue with Google</em>. No Gmail? Use a username and password instead.</small></li>
-      <li><b>2</b><span>Join your production</span><small>Enter the production code and the mobile number your Line Producer has. Your deal is already waiting for you.</small></li>
-      <li><b>3</b><span>Add your photo</span><small>A clear photo of your face. It goes on your Crew ID.</small></li>
-      <li><b>4</b><span>Profile and bank</span><small>Your name exactly as on your PAN card, your address, PAN and bank account. Payments go to this account.</small></li>
-      <li><b>5</b><span>Aadhaar and PAN</span><small>Photos of both. Cover the first 8 Aadhaar digits, then type the last 4.</small></li>
-      <li><b>6</b><span>Sign your agreement</span><small>You get a notification when it’s ready. Read it, type your name and sign with your finger.</small></li>
+      <li><b>Sign in with Google</b><span>Open the link and tap Continue with Google. No Gmail? Use a username and password instead.</span></li>
+      <li><b>Join your production</b><span>Enter your show’s code and the mobile number your Line Producer has. Your deal is already waiting.</span></li>
+      <li><b>Add your photo</b><span>A clear photo of your face. It goes on your Crew ID.</span></li>
+      <li><b>Profile and bank</b><span>Your name exactly as on your PAN card, your address, PAN and bank account. Payments go here.</span></li>
+      <li><b>Aadhaar and PAN</b><span>Photos of both. Cover the first 8 Aadhaar digits, then type the last 4.</span></li>
+      <li><b>Sign your agreement</b><span>You get a notification when it’s ready. Read it, type your name and sign with your finger.</span></li>
     </ol>
   </section>
 
-  <section aria-labelledby="daily">
-    <h2 id="daily">After that</h2>
-    <div class="cols">
-      <div class="card"><h3>On every shoot day</h3><ul><li>Show your <b>Crew ID</b> code at the gate. It’s at the top of <b>My setup</b>.</li><li>Your check-ins count as your working days.</li><li>See call times and locations in <b>Shoot schedule</b>.</li></ul></div>
-      <div class="card"><h3>Getting paid</h3><ul><li>Go to <b>My invoices</b> and tap <b>Raise invoice</b>.</li><li>Pick the dates. Your days fill in from the gate.</li><li>The <b>bell</b> tells you when it’s checked, approved and paid, with the bank reference.</li></ul></div>
-      <div class="card"><h3>Your privacy</h3><ul><li>Only you, the CFO, the Commercial Head and Accounts see your PAN, Aadhaar and bank details.</li><li>Every change to your deal is recorded and you’re told about it.</li></ul></div>
-    </div>
+  <section data-for="crewdesk-office" hidden aria-labelledby="office-flow">
+    <h2 id="office-flow">How a show runs in CrewDesk</h2>
+    <p class="lede">Set up once, then every person moves through the same chain: invite, agreement, schedule, invoice, payment, Tally.</p>
+    <ol class="steps">
+      <li><b>Company details, once</b><span>The CFO or Commercial Head enters PAN, TAN, GSTIN and bank. Every show uses them.</span></li>
+      <li><b>Create the show</b><span>It gets its own joining code. Share it with the crew; make a new one if it leaks.</span></li>
+      <li><b>Onboard people</b><span>Set the deal and send the invite on WhatsApp. They fill their own bank, PAN and Aadhaar.</span></li>
+      <li><b>Agreements</b><span>Send with one tap when someone is ready. Owners approve after they sign.</span></li>
+      <li><b>Schedule and gate</b><span>Plan shoot days and check people in with their Crew ID. That’s their attendance.</span></li>
+      <li><b>Invoices to Tally</b><span>HOD check, final approval, deductions, one payment run, then the Tally files.</span></li>
+    </ol>
   </section>
 
-  <section aria-labelledby="office">
-    <h2 id="office">For the production office</h2>
+  <section aria-labelledby="roles">
+    <h2 id="roles">Who does what</h2>
     <div class="cols">
-      <div class="card"><h3>Line Producer and Head of Production</h3><ul><li><b>Artists, crew &amp; vendors → Onboard</b>: set the deal and copy the WhatsApp invite.</li><li>Send agreements once someone’s details are complete.</li><li>Plan shoot days and check people in at the gate.</li><li>Check invoices, and ask the owners to remove someone if needed.</li></ul></div>
-      <div class="card"><h3>CFO and Commercial Head</h3><ul><li>Set up company details once.</li><li>Approve signed agreements and invoices.</li><li>Change deals (every change can be undone), add deductions and remove people.</li><li>Reports and Excel for each month.</li></ul></div>
-      <div class="card"><h3>Accounts</h3><ul><li><b>Payments &amp; Tally</b>: pay approved invoices in one bank run.</li><li>Deductions and remarks before payment.</li><li>TDS and GST registers, and the Tally files.</li></ul></div>
+      <div class="card"><h3><i>★</i>CFO and Commercial Head</h3><ul><li>Company details and new productions</li><li><b>Approve</b> signed agreements and invoices</li><li>Change deals (every change can be undone)</li><li>Deductions, removals and reports</li></ul></div>
+      <div class="card"><h3><i>◆</i>Line Producer and Head of Production</h3><ul><li><b>Onboard</b> people and send agreements</li><li>Plan shoot days and check people in</li><li>HOD check on invoices</li><li>Ask the owners to remove someone</li></ul></div>
+      <div class="card"><h3><i>₹</i>Accounts</h3><ul><li><b>Pay</b> approved invoices in one bank run</li><li>Deductions and remarks before payment</li><li>TDS and GST registers, Tally files</li></ul></div>
+      <div class="card"><h3><i>●</i>Crew, artists and vendors</h3><ul><li>Fill their own details and sign</li><li>Crew ID at the gate every shoot day</li><li>Raise invoices and follow them on the bell</li></ul></div>
     </div>
   </section>
 
   <section aria-labelledby="faq">
     <h2 id="faq">Common questions</h2>
     <details><summary>I forgot my password</summary><p>On the sign-in screen tap <b>Forgot password?</b>. If your account uses a Gmail address, tap <b>Sign in with Google instead</b>: you’re straight back in. Otherwise we email you a reset link.</p></details>
-    <details><summary>It says the production code is wrong</summary><p>Check it with your Line Producer; codes look like SATH-7Q4K. After 10 wrong tries, joining is paused for an hour.</p></details>
+    <details><summary>It says the production code is wrong</summary><p>Every show has its own code, like SATH-7Q4K. Check it with your Line Producer. After 10 wrong tries, joining is paused for an hour.</p></details>
     <details><summary>My deal, rate or name isn’t showing</summary><p>Use the same mobile number or Gmail your Line Producer used for your invite. If it still doesn’t show, ask them to check your invite.</p></details>
     <details><summary>Where is my agreement?</summary><p>It arrives after your profile and documents are complete. You’ll get a notification on the bell, and it appears under <b>My setup → Agreement</b>.</p></details>
-    <details><summary>Something else</summary><p>Tap the <b>Guide</b> button in the app and ask, or contact your Line Producer.</p></details>
+    <details><summary>Where is my invoice right now?</summary><p>Open <b>My invoices</b>: each one shows its stage (waiting for HOD, waiting for the CFO or Commercial Head, approved, paid). The bell tells you each time it moves.</p></details>
+    <details><summary>Who can see my PAN, Aadhaar and bank details?</summary><p>Only you, the CFO, the Commercial Head and Accounts on your production. Every change is logged.</p></details>
   </section>
+
+  <div class="cta"><div><h2>Ready?</h2><p>Open the link your Line Producer sent you, or sign in here.</p></div><a class="btn primary" href="/">Open CrewDesk</a></div>
 </main>
-<footer><div class="wrap">CrewDesk · Swastik Stories · <a href="/">Open CrewDesk</a></div></footer>
+<footer><div class="wrap">CrewDesk · Swastik Stories</div></footer>
+<script src="help.js"></script>
 </body></html>

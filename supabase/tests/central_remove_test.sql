@@ -72,3 +72,13 @@ select as_user(:'ritika'); set role authenticated;
 select refused(format($$select decide_removal(%L, true)$$, :'req3'), 'already been dealt with');
 reset role;
 \echo ALL REMOVAL TESTS PASSED
+-- welcome video seen once
+select as_user(:'imran'); set role authenticated;
+select ok(tour_status() is null, 'the welcome video has not been seen yet');
+select tour_done();
+select ok(tour_status() is not null, 'it is marked as seen');
+reset role;
+select as_user(:'manoj'); set role authenticated;
+select ok(tour_status() is null, 'each person has their own');
+reset role;
+\echo ALL WELCOME TESTS PASSED

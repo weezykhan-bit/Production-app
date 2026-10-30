@@ -162,7 +162,12 @@ try {
   if (!(await p.$('.gbtn'))) throw new Error('no Google button on the sign-in screen');
   await click('[data-act=forgot]'); if (!(await text('.login-form')).includes('Sign in with Google instead')) errs.push('forgot-password screen lacks the Google route'); await click('[data-act=auth][data-id=in]');
   await click('[data-act=auth][data-id=signup]'); if (!(await text('.gbtn')).includes('Sign up with Google')) errs.push('sign-up tab lacks the Google button');
-  await click('.gbtn'); await p.waitForTimeout(500); await over('google first visit');
+  await db.exec('alter table profiles alter column tour_seen_at drop default');
+  await click('.gbtn'); await p.waitForTimeout(700);
+  if (!(await p.$('.dlg-welcome video[src$="crewdesk-setup.mp4"]'))) errs.push('first sign-in did not show the crew welcome video'); else ok('first sign-in shows the welcome video');
+  await over('welcome'); await click('.dlg-welcome [data-act=close-modal]');
+  await db.exec('alter table profiles alter column tour_seen_at set default now()');
+  await p.waitForTimeout(300); await over('google first visit');
   if (!(await p.$('#join-phone'))) throw new Error('Google user is not asked for a mobile when joining');
   await fill({'join-code':code, 'join-phone':'+91 98111 22233'}); await click('form[data-form=join] button[type=submit]'); await p.waitForTimeout(300);
   const kav = await ev(() => { const m = memberIn(U.pid, S.session); return m && {job:m.job, rate:m.rate, name:me().name}; });
