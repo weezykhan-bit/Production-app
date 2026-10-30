@@ -38,9 +38,9 @@ h2{font-size:clamp(22px,3vw,28px)} h3{font-size:17px}
 
 .hero{background:radial-gradient(110% 90% at 15% 0%,#14857d 0%,#0b6b66 42%,#073f3c 100%);color:#fff}
 .hero .wrap{padding-block:44px 52px;display:grid;gap:14px}
-.hero .eyebrow{color:#f2c46a}
+.hero .eyebrow{color:#ffe2a3}
 .hero h1{font-size:clamp(32px,5.4vw,54px);max-width:18ch}
-.hero p{font-size:18px;opacity:.88;margin:0;max-width:58ch}
+.hero p{font-size:18px;margin:0;max-width:58ch}
 .seg{display:inline-flex;gap:6px;padding:5px;border-radius:12px;background:rgb(255 255 255 / .12);margin-top:10px;justify-self:start;flex-wrap:wrap}
 .seg button{border:0;border-radius:9px;padding:10px 16px;font:600 15px var(--f-body);background:transparent;color:#fff;cursor:pointer}
 .seg button[aria-selected="true"]{background:#fff;color:var(--deep)}
@@ -53,7 +53,7 @@ h2{font-size:clamp(22px,3vw,28px)} h3{font-size:17px}
 .frame.port video{aspect-ratio:390/844;border-radius:22px}
 .frame.land video{aspect-ratio:16/10}
 .side{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);display:grid;gap:12px}
-.side h3{font-size:18px}
+.side h2{font-size:18px}
 .chapters{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .chapters button{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;border:0;background:none;padding:8px 8px;border-radius:9px;cursor:pointer;color:inherit;font:inherit}
 .chapters button:hover{background:var(--surface-2)}
@@ -107,7 +107,7 @@ footer{padding:28px 0 calc(40px + env(safe-area-inset-bottom,0px));color:var(--m
   <div class="watch">
     <div class="frame port" id="frame"><video id="guide-video" controls playsinline preload="metadata" aria-label="CrewDesk guide video"></video></div>
     <aside class="side">
-      <h3>Jump to a step</h3>
+      <h2>Jump to a step</h2>
       <ol class="chapters" id="chapters"></ol>
       <div data-for="crewdesk-setup"><p class="eyebrow" style="margin:6px 0 8px">Keep these handy</p>
         <ul class="need"><li>Production code</li><li>PAN card</li><li>Bank account &amp; IFSC</li><li>Aadhaar (masked)</li><li>A clear photo</li></ul></div>
