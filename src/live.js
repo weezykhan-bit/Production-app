@@ -63,7 +63,7 @@ async function liveDB(cfg){
 }
 
 /* ---------------------------------------------------------------- load what this person may see */
-S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], tasks:[], unlocks:[], session:null};
+S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], tasks:[], unlocks:[], costs:[], floats:[], session:null};
 function save(){}
 function log(){}                       // the database writes the activity log itself
 const urlCache = {};
@@ -71,10 +71,10 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl] = await Promise.all([
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl, costs, floats] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
     DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests'),
-    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks')]);
+    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks'), DB.select('cost_entries'), DB.select('petty_floats')]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -106,6 +106,7 @@ async function load(){
     deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '',
     auditedBy:i.audited_by, auditedAt:ts(i.audited_at), hopBy:i.hop_by, hopAt:ts(i.hop_at), approvedBy:i.approved_by}));
   next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '', confirmedAt:ts(d.att_confirmed_at), confirmedBy:d.att_confirmed_by,
+    dpr:d.dpr_at ? {call:d.act_call || '', first:d.first_shot || '', lunch:d.lunch_min, wrap:d.act_wrap || '', planned:d.scenes_planned, shot:d.scenes_shot, minutes:d.minutes_shot == null ? null : +d.minutes_shot, delay:d.delay || '', by:d.dpr_by, at:ts(d.dpr_at)} : null,
     att:checks.filter(c => c.day_id === d.id && !c.removed_at).map(c => c.user_id)}));
   next.exports = exps.map(x => ({id:x.batch, pid:x.production_id, at:ts(x.at), by:x.by, purchases:x.purchases, payments:x.payments, value:+x.value}));
   next.log = acts.map(a => ({id:a.id, at:ts(a.at), by:a.by, pid:a.production_id, type:a.type, text:a.text, memberId:a.crew_id, invoiceId:a.invoice_id,
@@ -113,7 +114,10 @@ async function load(){
   next.tasks = tks.map(t => ({id:t.id, pid:t.production_id, title:t.title, details:t.details || '', kind:t.kind, status:t.status, priority:t.priority, dept:t.dept || '', due:t.due || '',
     dayId:t.day_id, by:t.created_by, at:ts(t.created_at), doneAt:ts(t.done_at), assignees:tas.filter(a => a.task_id === t.id).map(a => a.user_id),
     updates:tus.filter(u => u.task_id === t.id).map(u => ({id:String(u.id), by:u.by, kind:u.kind, body:u.body, at:ts(u.at), accepted:!!u.accepted}))}));
-  next.unlocks = unl.map(q => ({id:q.id, pid:q.production_id, dayId:q.day_id, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, decidedBy:q.decided_by, decidedAt:ts(q.decided_at), expiresAt:ts(q.expires_at), note:q.note || ''}));
+  next.unlocks = unl.map(q => ({id:q.id, pid:q.production_id, dayId:q.day_id, date:q.on_date, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, decidedBy:q.decided_by, decidedAt:ts(q.decided_at), expiresAt:ts(q.expires_at), note:q.note || ''}));
+  next.costs = costs.map(c => ({id:c.id, pid:c.production_id, date:c.on_date, head:c.head, item:c.item || '', descr:c.descr || '', payee:c.payee || '', qty:+c.qty, rate:c.rate == null ? null : +c.rate, amount:+c.amount,
+    mode:c.mode, holder:c.petty_holder, bill:c.bill_no || '', notes:c.notes || '', source:c.source, batch:c.batch, by:c.created_by, at:ts(c.created_at)}));
+  next.floats = floats.map(f => ({id:f.id, pid:f.production_id, holder:f.holder, amount:+f.amount, date:f.on_date, note:f.note || '', by:f.given_by, at:ts(f.at)}));
   next.removals = rems.map(q => ({id:q.id, pid:q.production_id, memberId:q.crew_id, person:q.person, by:q.requested_by, reason:q.reason, at:ts(q.at), status:q.status, note:q.note || ''}));
   next.notes = notes.map(n => ({id:n.id, pid:n.production_id, at:ts(n.at), kind:n.kind, title:n.title, body:n.body || '', view:n.view, read:!!n.read_at}));
   S = next;
@@ -161,6 +165,11 @@ Object.assign(ACT, {
     if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
   'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id), r = await call('advance_invoice', {p_id:el.dataset.id}); if (r === FAIL) return; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'cost-del': async el => { if (await call('delete_cost_entry', {p_id:el.dataset.id}) !== FAIL) done('Line deleted'); },
+  'cost-undo': async el => { const n = await call('undo_cost_import', {p_batch:el.dataset.id}); if (n !== FAIL) done(`Import undone · ${n} lines removed`); },
+  'cost-import': async () => { const rows = U.modal.rows.filter(r => !r.errs.length);
+    const n = await call('add_cost_entries', {p_production:U.pid, p_rows:rows.map(r => ({date:r.date, head:r.head, item:r.item, descr:r.descr, payee:r.payee, qty:r.qty, rate:r.rate, amount:r.amount, mode:r.mode, holder:r.holder || '', bill_no:r.bill, notes:r.notes})), p_source:'excel'}, 'ci2-err');
+    if (n === FAIL) return; U.modal = null; U.cdate = rows[0].date; done(`${n} lines imported`); },
   'att-confirm': async el => { const n = await call('confirm_attendance', {p_day:el.dataset.id}); if (n !== FAIL) done(`Attendance confirmed · ${n} checked in`); },
   'task-st': async el => { if (await call('set_task_status', {p_task:el.dataset.id, p_status:el.dataset.s}) !== FAIL) done(TASK_ST[el.dataset.s][0]); },
   'task-accept': async el => { if (await call('accept_solution', {p_update:+el.dataset.id}) !== FAIL) done('Solution accepted; issue closed'); },
@@ -235,12 +244,20 @@ Object.assign(FORMS, {
   rmask: async () => { if (await call('request_removal', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err') === FAIL) return; U.modal = null; done('Request sent to the CFO and Commercial Head'); },
   rmdecide: async () => { const r = await call('decide_removal', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('rm-note')}, 'rm-err'); if (r === FAIL) return;
     if (r !== 'declined') U.drawer = null; U.modal = null; done(r === 'declined' ? 'Kept; they’ve been told why' : r === 'deleted' ? 'Approved and deleted' : 'Approved; removed from the production'); },
-  unlockask: async () => { if (await call('request_day_unlock', {p_day:U.modal.id, p_reason:v('ul-why')}, 'ul-err') === FAIL) return; U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
+  unlockask: async () => { if (await (U.modal.id ? call('request_day_unlock', {p_day:U.modal.id, p_reason:v('ul-why')}, 'ul-err') : call('request_date_unlock', {p_production:U.pid, p_date:U.modal.date, p_reason:v('ul-why')}, 'ul-err')) === FAIL) return; U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
   unlockdecide: async () => { if (await call('decide_day_unlock', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('ud-note')}, 'ud-err') === FAIL) return; const y = U.modal.yes; U.modal = null; done(y ? 'Allowed for 24 hours' : 'Refused'); },
   task: async () => { const who = [...document.querySelectorAll('input[name=tk-who]:checked')].map(x => x.value);
     const id = await call('save_task', {p_production:U.pid, p:{id:U.modal.id || '', title:v('tk-title'), kind:document.querySelector('input[name=tk-kind]:checked')?.value || 'task', details:v('tk-details'),
       priority:v('tk-prio'), due:v('tk-due'), dept:v('tk-dept'), day_id:v('tk-day'), assignees:who}}, 'tk-err');
     if (id === FAIL) return; U.modal = null; U.drawer = {type:'task', id}; done(who.length ? 'Saved; the people assigned have been told' : 'Saved'); },
+  costadd: async () => { const c = costForm(); if (!c) return;
+    if (await call('add_cost_entries', {p_production:U.pid, p_rows:[{date:c.date, head:c.head, item:c.item, payee:c.payee, qty:c.qty, rate:c.rate, amount:c.amount, mode:c.mode, holder:c.holder || '', bill_no:c.bill}], p_source:'manual'}, 'ca-err') === FAIL) return;
+    U.chead = c.head; U.cmode = c.mode; done(`${inr(c.amount)} added to ${c.head}`); },
+  float: async () => { const a = Math.round(+v('fl-amt')); if (!a) return err('fl-err', 'Enter an amount (negative if cash came back).');
+    if (await call('give_petty_float', {p_production:U.pid, p_holder:v('fl-who'), p_amount:a, p_note:v('fl-note')}, 'fl-err') === FAIL) return; U.modal = null; done('Petty cash recorded; they’ve been told'); },
+  dpr: async () => { const x = dprValues(); if (!x.call || !x.wrap) return err('dp-err', 'Enter the actual call and wrap times.');
+    if (await call('save_dpr', {p_day:U.drawer.id, p:{act_call:x.call, first_shot:x.first, lunch_min:x.lunch ?? '', act_wrap:x.wrap, scenes_planned:x.planned ?? '', scenes_shot:x.shot ?? '', minutes_shot:x.minutes ?? '', delay:x.delay}}, 'dp-err') === FAIL) return;
+    U.dprEdit = false; done('Daily report filed'); },
   taskupdate: async () => { if (await call('add_task_update', {p_task:U.drawer.id, p_body:v('tu-body'), p_kind:document.querySelector('input[name=tu-kind]:checked')?.value || 'comment'}, 'tu-err') === FAIL) return; done('Posted'); },
   dayedit: async () => { const e1 = v('de-ep1'), e2 = v('de-ep2');
     if (await call('update_day', {p_day:U.modal.id, p:{call:v('de-call'), wrap:v('de-wrap'), location:v('de-loc'), note:v('de-note'), ep_from:e1, ep_to:e2 || e1}}, 'de-err') === FAIL) return;

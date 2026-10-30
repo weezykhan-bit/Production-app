@@ -215,6 +215,30 @@ try {
   for (const v of ['home','people','invoices','company','access']) { await click(`.rail [data-id=${v}]`); await over(v); }
   await p.screenshot({path:'/tmp/crewdesk-live-home.png', fullPage:true});
 
+  // 6b. Daily costs: a typed line, an Excel import checked row by row, undo, petty cash and the daily report
+  await click('.rail [data-id=costs]'); await over('costs');
+  await ev(() => { U.cdate = isoD(dayOff(1)); render(); });   // today’s attendance is confirmed above, so today is locked
+  await p.selectOption('#ca-head', 'Transport'); await fill({'ca-item':'Extra tempo', 'ca-qty':2, 'ca-rate':1500}); await click('form[data-form=costadd] button[type=submit]');
+  if (!(await ev(() => S.costs.some(c => c.item === 'Extra tempo' && c.amount === 3000)))) errs.push('typed cost line not saved: ' + await text('#ca-err').catch(() => '')); else ok('typed a cost line (2 × ₹1,500)');
+  const [tpl] = await Promise.all([p.waitForEvent('download', {timeout:5000}).catch(() => null), click('[data-act=cost-template]')]);
+  if (!tpl) errs.push('no template download'); else ok('template downloaded: ' + tpl.suggestedFilename());
+  await ev(async () => { const d = isoD(dayOff(1)).split('-').reverse().join('/'), w = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(w, XLSX.utils.aoa_to_sheet([['Date','Cost head','Item','Paid to','Qty','Rate','Amount','Paid by','Bill no'], [d, 'catering', 'Dinner', 'Annapurna', 70, 150, '', 'UPI', 'AC-9'], [d, 'Location & permits', 'Police permission', 'Umargam PS', 1, '', 2500, 'cash', ''], ['01/01/2020', 'Art', 'Old', 'X', 1, '', 10, 'bank', '']]), 'Daily costs');
+    const f = new File([XLSX.write(w, {type:'array', bookType:'xlsx'})], 'day.xlsx'); U.modal = {type:'costimport', ...(await readCostFile(f))}; renderLayer(); });
+  if (!(await p.$eval('[data-act=cost-import]', e => e.disabled))) errs.push('import allowed with a locked row');
+  await ev(async () => { U.modal.rows = U.modal.rows.filter(r => !r.errs.length); renderLayer(); }); await click('[data-act=cost-import]'); await p.waitForTimeout(300);
+  const imp = await ev(() => S.costs.filter(c => c.source === 'excel').map(c => [c.head, c.amount, c.mode]));
+  if (JSON.stringify(imp.sort()) !== JSON.stringify([['Catering & Hospitality', 10500, 'bank'], ['Location & permits', 2500, 'cash']])) errs.push('Excel import wrong: ' + JSON.stringify(imp) + ' ' + await text('#ci2-err').catch(() => ''));
+  else ok('Excel import: locked row refused in preview, 2 rows imported with heads matched');
+  await click('[data-act=cost-undo]'); if (await ev(() => S.costs.some(c => c.source === 'excel'))) errs.push('undo import failed'); else ok('Excel import undone');
+  await ev(() => { U.cdate = isoD(dayOff(-9)); render(); });
+  if (await p.$('form[data-form=costadd]')) errs.push('a locked date takes new lines'); else ok('a date 9 days ago is locked for the CFO');
+  if (await p.$('main [data-act=float]')){ await click('main [data-act=float]'); await fill({'fl-amt':5000}); await click('form[data-form=float] button[type=submit]');
+    if (!(await ev(() => S.floats.length))) errs.push('petty cash not given: ' + await text('#fl-err').catch(() => '')); else ok('petty cash given'); }
+  const td = await ev(() => S.days.find(d => d.date === today() && d.status !== 'cancelled')?.id);
+  if (td){ await ev(id => { U.drawer = {type:'day', id}; renderLayer(); }, td); await fill({'dp-call':'07:30', 'dp-wrap':'21:15', 'dp-plan':7, 'dp-shot':5}); await click('form[data-form=dpr] button[type=submit]');
+    if (!(await text('.drawer')).includes('1h 45m overtime')) errs.push('daily report not filed: ' + await text('#dp-err').catch(() => '')); else ok('daily report filed; 1h 45m overtime shown');
+    await p.keyboard.press('Escape'); }
   // 7. Live: the crew member has CrewDesk open on their phone; the owner changes their deal; it arrives without a refresh
   const ctx2 = await b.newContext({viewport:{width:390, height:844}});
   await ctx2.exposeFunction('pgCall', async (op, a) => { try { return await pg(op, a); } catch (e) { return {__error:e.message}; } });

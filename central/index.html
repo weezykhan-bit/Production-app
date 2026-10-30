@@ -455,6 +455,26 @@ details.sec .body{padding:0 16px 16px;display:grid;gap:14px}
 .steps4 div::before{counter-increment:st;content:counter(st);font:600 12px/1 var(--f-mono);color:var(--accent)}
 @media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (prefers-reduced-motion:no-preference){.drawer{animation:slide .18s ease-out}.dialog{animation:pop .15s ease-out}@keyframes slide{from{transform:translateX(24px);opacity:.6}}@keyframes pop{from{transform:scale(.98);opacity:.6}}}
+/* daily costs */
+.hidden{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:640px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.filebtn{cursor:pointer}
+.filebtn:focus-within{box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent)}
+label.f.datepick input{min-width:160px;font-variant-numeric:tabular-nums}
+.costadd{display:grid;grid-template-columns:minmax(150px,1.3fr) minmax(120px,1.2fr) minmax(120px,1.2fr) repeat(3,minmax(72px,.6fr)) minmax(120px,1fr) auto;gap:10px;align-items:end;padding-top:14px;border-top:1px solid var(--line)}
+.costadd #ca-holder-f{grid-column:span 2}
+.costadd .btn{height:40px}
+.costadd .err{grid-column:1/-1;margin:0}
+.costadd .err:empty{display:none}
+@media (max-width:1100px){.costadd{grid-template-columns:repeat(3,minmax(0,1fr))}.costadd .btn{grid-column:1/-1}}
+@media (max-width:560px){.costadd{grid-template-columns:repeat(2,minmax(0,1fr))}.costadd label.f:first-child{grid-column:1/-1}}
+.feed .sub{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.dialog.dlg-costimport{width:min(960px,100%)}
+table.costs td{vertical-align:top}
+table.costs tr.rowbad td{background:var(--bad-soft)}
+.warnc{color:var(--marigold);font-weight:600}
 </style>
 
 </head><body>

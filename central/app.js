@@ -90,7 +90,7 @@ const I = {
   lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
   tasks:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l2 2 3-3M7 15l2 2 3-3M14 10h4M14 16h4"/>', board:'<rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/>',
   table:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>',
-  down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
+  down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', cash:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
 };
 const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/, IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/, ACCT_RE = /^\d{9,18}$/, GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -128,7 +128,7 @@ function seed(empty = false){
     setupBy:'u_ritika', setupAt:ago(170)};
   const projects = [
     {id:'p_saath', name:'Saath Phere', format:'Long-format fiction · daily', platform:'Hindi GEC · Mon–Sat, 8:30 pm', status:'Shooting', planned:400, done:0, block:'', location:'Umargam studio · Floor 3', city:'Mumbai', start:at(-150), invite:'SATH7Q4K', codeAt:ago(150), codeBy:'u_manoj',
-     budget:{'Cast':5200000,'Direction':900000,'Production':1400000,'Accounts & Legal':400000,'Camera':2400000,'Lighting':900000,'Costume':600000,'Vendors & Services':4800000}},
+     budget:{'Cast':5200000,'Direction':900000,'Production':1400000,'Accounts & Legal':400000,'Camera':2400000,'Lighting':900000,'Costume':600000,'Vendors & Services':4800000,'Transport':1500000,'Catering & Hospitality':2200000,'Location & permits':900000,'Art':700000}},
     {id:'p_kaali', name:'Kaali Raat', format:'Web series', platform:'OTT · Season 1, 8 episodes', status:'Pre-production', planned:8, done:0, block:'Prep', location:'Andheri West, Mumbai', city:'Mumbai', start:at(33), invite:'KAAL2M8X', codeAt:ago(20), codeBy:'u_manoj',
      budget:{'Cast':3800000,'Camera':1500000,'Art':1200000}},
     {id:'p_bhoomi', name:'Bhoomi Shorts', format:'Micro-drama', platform:'App · 60 × 2 min', status:'Shooting', planned:60, done:0, block:'', location:'Swastik Bhoomi · Floor 1', city:'Mumbai', start:at(-30), invite:'BHMI5T2R', codeAt:ago(45), codeBy:'u_fowzan',
@@ -252,15 +252,31 @@ function seed(empty = false){
     T('Collect pending PAN cards of junior artists', 'task', 'todo', 'high', 'Accounts & Legal', -1, 'u_sneha', ['u_neha']),
     T('Rain cover for the outdoor set next week', 'issue', 'working', 'high', 'Production', 6, 'u_hema', ['u_manoj','u_rohit'], [['u_manoj','solution','Rent two 40×60 tarpaulin frames from Kiran Lights.',1]]),
   ];
-  if (empty) return {v:4, company:null, users:users.filter(u => ['u_ritika','u_fowzan','u_manoj','u_neha'].includes(u.id)), projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
-  return {v:4, company, users, projects, members, invoices, days, exports, log, tasks, unlocks:[], session:null};
+  if (empty) return {v:5, costs:[], floats:[], company:null, users:users.filter(u => ['u_ritika','u_fowzan','u_manoj','u_neha'].includes(u.id)), projects:[], members:[], invoices:[], days:[], exports:[], log:[], session:null};
+  // daily costs for the last three weeks of Saath Phere, a petty cash float and daily reports
+  const costs = [], floats = [{id:uid('pf'), pid:'p_saath', holder:'u_manoj', amount:25000, date:at(-16), note:'Petty cash for the block', by:'u_neha', at:ago(16)}, {id:uid('pf'), pid:'p_saath', holder:'u_manoj', amount:15000, date:at(-5), note:'Top-up', by:'u_neha', at:ago(5)}];
+  const C = (date, head, item, payee, qty, rate, amount, mode, o = {}) => costs.push({id:uid('c'), pid:'p_saath', date, head, item, descr:o.descr || '', payee, qty, rate, amount:amount || Math.round(qty * rate), mode, holder:mode === 'petty' ? 'u_manoj' : null,
+    bill:o.bill || '', notes:'', source:o.batch ? 'excel' : 'manual', batch:o.batch || null, by:o.by || 'u_neha', at:new Date(date + 'T21:00').getTime()});
+  const imp = 'b_' + Math.random().toString(36).slice(2, 8);
+  days.filter(d => d.pid === 'p_saath' && d.status === 'shot' && d.date >= at(-20)).forEach((d, k) => {
+    const n = d.att.length + 38, o = k > 8 ? {batch:imp, by:'u_manoj'} : {};
+    C(d.date, 'Catering & Hospitality', 'Unit lunch & tea', 'Annapurna Caterers', n, 180, 0, 'bank', {...o, descr:`${n} plates`, bill:'AC-' + (100 + k)});
+    C(d.date, 'Transport', 'Innova x3, tempo x1', 'Shree Travels', 4, 2800, 0, 'credit', o);
+    C(d.date, 'Lighting', 'Generator diesel', 'HP Petrol Pump, Umargam', 120, 94, 0, 'bank', o);
+    if (k % 3 === 0) C(d.date, 'Art', 'Props hire', 'Chor Bazaar', 1, null, 3500 + k * 150, 'petty', o);
+    if (k % 4 === 1) C(d.date, 'Location & permits', 'Society NOC', 'Shanti Nagar CHS', 1, null, 15000, 'cash', {...o, bill:'R-' + (20 + k)});
+  });
+  days.filter(d => d.pid === 'p_saath' && d.status === 'shot').slice(-6).forEach((d, k) => {
+    const late = k % 3 === 1; d.dpr = {call:'08:00', first:late ? '09:55' : '09:10', lunch:45, wrap:late ? '22:15' : '20:30', planned:8, shot:late ? 6 : 8, minutes:late ? 18 : 23.5, delay:late ? 'Lead artist reported 70 min late; rain 3–4 pm' : '', by:'u_manoj', at:new Date(d.date + 'T22:40').getTime()};
+  });
+  return {v:5, company, users, projects, members, invoices, days, exports, log, tasks, unlocks:[], costs, floats, session:null};
 }
 
 /* ============================================================ state */
 const KEY = 'crewdesk-central-demo-v2';
 let S;
 try { const raw = localStorage.getItem(KEY); S = raw ? JSON.parse(raw) : null; } catch { S = null; }
-if (!S || S.v !== 4) S = seed();
+if (!S || S.v !== 5) S = seed();
 let storageWarned = false;
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { if (!storageWarned){ storageWarned = true; toast('This browser isn’t saving demo data, so changes last until you close the tab.'); } } }
 const U = {view:'projects', pid:null, drawer:null, modal:null, menu:false, chat:false, chatLog:[], pf:'all', pk:'all', agk:'all', agf:'all', pq:'', pd:'', invf:'mine', logf:'', sigInk:false, month:null, fmonth:null, ftab:'pay', sel:[], coEdit:false, qtyTouched:false};
@@ -294,7 +310,10 @@ const can = {
   adjust: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor'].includes(r),
   confirmAtt: r => r === 'auditor' || (isOwner(r) && !hasRole(U.pid, ['auditor'])),
   grantUnlock: r => ['commercial','commercial_mgr'].includes(r),
-  askUnlock: r => isOwner(r) || isLP(r) || r === 'auditor',
+  askUnlock: r => isOwner(r) || isLP(r) || ['auditor','accounts'].includes(r),
+  costs: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor'].includes(r),
+  giveFloat: r => ['cfo','commercial','commercial_mgr','accounts'].includes(r),
+  dpr: r => isOwner(r) || isLP(r) || r === 'commercial_mgr',
   taskHead: r => ['cfo','commercial','commercial_mgr','hop','lp','auditor','hod'].includes(r),
   remove: r => isOwner(r),
   askRemove: r => isLP(r),
@@ -311,8 +330,8 @@ function stepOk(i, r){
 }
 // shoot days lock once attendance is confirmed, or once the day after is over
 const dayLocked = d => !!d.confirmedAt || d.date < isoD(dayOff(-1));
-const dayUnlock = d => (S.unlocks || []).find(q => q.dayId === d.id && q.status === 'approved' && q.expiresAt > Date.now());
-const dayPending = d => (S.unlocks || []).find(q => q.dayId === d.id && q.status === 'pending');
+const dayUnlock = d => dateUnlock(d.pid, d.date);
+const dayPending = d => datePending(d.pid, d.date);
 const dayEditable = (d, r = myRole()) => !dayLocked(d) || can.grantUnlock(r) || !!dayUnlock(d);
 const pendingRemoval = m => (S.removals || []).find(q => q.memberId === m.id && q.status === 'pending');
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
@@ -379,16 +398,21 @@ function todos(pid, uidv){
   invs.filter(i => i.by !== uidv && stepOk(i, r)).forEach(i => out.push({t:`${{submitted:'Audit', audited:'Confirm', hop_ok:'Approve'}[i.status]} invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept} · ${INV[i.status][0].toLowerCase()}`, act:'open-invoice', id:i.id, b:'Review'}));
   if (can.confirmAtt(r)) S.days.filter(d => d.pid === pid && d.date <= today() && d.status !== 'cancelled' && !d.confirmedAt && d.att.length)
     .forEach(d => out.push({t:`Confirm attendance for ${fmtD(d.date)}`, s:`${d.att.length} checked in at the gate · invoices wait for this`, act:'open-day', id:d.id, b:'Confirm'}));
-  if (can.grantUnlock(r)) (S.unlocks || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => { const d = S.days.find(x => x.id === q.dayId);
-    if (d) out.push({t:`Allow changes to ${fmtD(d.date)}?`, s:`Asked by ${user(q.by)?.name || 'production'} · ${q.reason}`, act:'open-day', id:d.id, b:'Decide'}); });
+  if (can.grantUnlock(r)) (S.unlocks || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => { const d = S.days.find(x => x.pid === pid && x.date === q.date);
+    out.push({t:`Allow changes to ${fmtD(q.date)}?`, s:`Asked by ${user(q.by)?.name || 'production'} · ${q.reason}`, ...(d ? {act:'open-day', id:d.id} : {act:'cdate', id:q.date}), b:'Decide'}); });
   (S.tasks || []).filter(t => t.pid === pid && t.status !== 'done' && t.assignees.includes(uidv) && t.due && t.due <= isoD(dayOff(2)))
     .forEach(t => out.push({t:`${t.kind === 'issue' ? 'Issue' : 'Task'}: ${t.title}`, s:`${t.due < today() ? 'Overdue' : 'Due'} ${fmtD(t.due)} · ${TASK_ST[t.status][0]}`, act:'open-task', id:t.id, b:'Open'}));
+  if (['lp','accounts'].includes(r)){
+    const td = S.days.find(d => d.pid === pid && d.date === today() && d.status !== 'cancelled');
+    if (td && !costsOf(pid).some(c => c.date === today())) out.push({t:'Enter today’s costs', s:'Type them in or import the Excel template · the day locks after tomorrow', act:'cdate', id:today(), b:'Open'});
+  }
   if (can.pay(r)){
     invs.filter(i => i.status === 'approved').forEach(i => out.push({t:`Pay ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · approved, waiting for payment`, act:'pay', id:i.id, b:'Mark paid'}));
   }
   if (can.schedule(r)){
     const td = S.days.find(d => d.pid === pid && d.date === today() && d.status !== 'cancelled');
     if (td && !td.att.length) out.push({t:'Check crew in for today’s shoot', s:`${epsLabel(td)} · call ${td.call} · ${esc(td.location)}`, act:'open-day', id:td.id, b:'Open'});
+    if (td && td.att.length && !td.dpr) out.push({t:'File today’s daily production report', s:'Call, first shot, wrap, scenes and minutes shot, any delay', act:'open-day', id:td.id, b:'File'});
   }
   if (can.finance(r)){
     const n = S.invoices.filter(i => i.pid === pid && ['approved','paid'].includes(i.status) && !i.tp).length + S.invoices.filter(i => i.pid === pid && i.status === 'paid' && !i.tpay).length;
@@ -410,10 +434,10 @@ function render(){
   if (U.pid && !memberIn(U.pid, S.session)) { U.pid = null; U.view = 'projects'; }
   const r = myRole();
   if (U.pid){
-    const ok = {people:isStaff(r), agreements:isStaff(r), activity:can.audit(r), finance:can.finance(r), reports:can.reports(r), company:isStaff(r)};
+    const ok = {people:isStaff(r), agreements:isStaff(r), activity:can.audit(r), finance:can.finance(r), reports:can.reports(r), company:isStaff(r), costs:can.costs(r) || pettyBook(U.pid).some(b => b.u === S.session)};
     if (U.view in ok && !ok[U.view]) U.view = 'home';
   }
-  const views = {home:isStaff(r) ? dashView : mySetupView, schedule:scheduleView, people:peopleView, agreements:agreementsView, invoices:invoicesView, finance:financeView, reports:reportsView, activity:activityView, access:accessView, company:companyView, tasks:tasksView};
+  const views = {home:isStaff(r) ? dashView : mySetupView, schedule:scheduleView, people:peopleView, agreements:agreementsView, invoices:invoicesView, finance:financeView, reports:reportsView, activity:activityView, access:accessView, company:companyView, tasks:tasksView, costs:costsView};
   const view = !U.pid ? (U.view === 'company' ? companyView() : projectsView()) : (views[U.view] || views.home)();
   app.innerHTML = topBar() + (U.pid ? `<div class="shell">${rail()}<main><div class="wrap">${view}</div></main></div>` : `<main><div class="wrap">${view}</div></main>`);
   renderLayer(); renderChat(); afterRender();
@@ -465,7 +489,7 @@ function topBar(){
 function rail(){
   const r = myRole(), staff = isStaff(r), n = todos(U.pid, S.session).length;
   const main = [['home', staff ? 'Home' : 'My setup', 'home'], ['schedule','Shoot schedule','cal'], ['tasks','Tasks','tasks'], staff && ['people','Artists, crew & vendors','people'], staff && ['agreements','Agreements','doc'],
-    ['invoices', staff ? 'Invoices' : 'My invoices', 'inv'], can.finance(r) && ['finance','Payments & Tally','bank'], can.reports(r) && ['reports','Reports','chart']].filter(Boolean);
+    ['invoices', staff ? 'Invoices' : 'My invoices', 'inv'], (can.costs(r) || pettyBook(U.pid).some(b => b.u === S.session)) && ['costs', can.costs(r) ? 'Daily costs' : 'My petty cash', 'cash'], can.finance(r) && ['finance','Payments & Tally','bank'], can.reports(r) && ['reports','Reports','chart']].filter(Boolean);
   const more = [staff && ['company','Company details','building'], can.audit(r) && ['activity','Activity log','log'], ['access','Who can do what','key']].filter(Boolean);
   const b = ([k, l, ic]) => `<button data-act="go" data-id="${k}" ${U.view === k ? 'aria-current="page"' : ''}>${icon(ic)}${l}${k === 'home' && n ? `<span class="count">${n}</span>` : ''}</button>`;
   return `<nav class="rail" aria-label="Sections">${main.map(b).join('')}<p class="grp">Settings</p>${more.map(b).join('')}
@@ -781,7 +805,7 @@ function accessView(){
     ['Create a production', r => isOwner(r)], ['Onboard people and send invites', r => can.onboard(r)], ['Set or change a deal (rate, dates, TDS)', r => can.editDeal(r)],
     ['Send agreements', r => can.sendAgreement(r)], ['Approve signed agreements', r => can.countersign(r)], ['See everyone’s PAN, Aadhaar and bank details', r => can.seeKyc(r)],
     ['Confirm attendance; approve invoices (step 1)', r => r === 'auditor'], ['Confirm invoices (step 2)', r => r === 'hop'], ['Approve invoices for payment (step 3)', r => ['commercial','commercial_mgr'].includes(r)], ['Mark invoices paid (step 4)', r => can.pay(r)],
-    ['Allow changes to a locked shoot day', r => can.grantUnlock(r)], ['Assign tasks', r => can.taskHead(r)],
+    ['Allow changes to a locked shoot day', r => can.grantUnlock(r)], ['Enter daily costs and import the Excel template', r => can.costs(r)], ['Give petty cash', r => can.giveFloat(r)], ['File the daily production report', r => can.dpr(r)], ['Assign tasks', r => can.taskHead(r)],
     ['See the activity log', r => can.audit(r)], ['Undo deal changes', r => can.revert(r)], ['Set up company details (once)', r => isOwner(r)], ['Generate and share the production code', r => can.code(r)],
     ['Plan the shoot schedule and check crew in', r => can.schedule(r)], ['See monthly reports and costs', r => can.reports(r)],
     ['Payment runs, TDS and GST registers, Tally sync', r => can.finance(r)],
@@ -851,12 +875,223 @@ function dayDrawer(d){
   <div class="stack" style="gap:4px"><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="meta">Shoot day · ${esc(p.name)}</p><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
   ${isStaff(r) ? lockPanel(d) : ''}
   <section class="panel"><dl class="dl"><dt>Call time</dt><dd class="mono">${d.call}</dd><dt>Expected wrap</dt><dd class="mono">${d.wrap}</dd><dt>Location</dt><dd>${esc(d.location)}</dd>${d.note ? `<dt>Note</dt><dd>${esc(d.note)}</dd>` : ''}
+    ${isStaff(r) && d.att.length ? `<dt>Meal count</dt><dd>${d.att.length} <span class="muted small">checked in at the gate</span></dd>` : ''}
     ${isStaff(r) && d.status === 'shot' ? `<dt>Day-rate cost</dt><dd class="num">${inr(dayRate.reduce((s, m) => s + m.rate, 0))} <span class="muted small">for ${dayRate.length} people checked in</span></dd>` : ''}</dl></section>
   ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status !== 'cancelled' ? `<button class="btn" data-act="day-edit" data-id="${d.id}">Edit call time & details</button>` : ''}${d.status !== 'cancelled' && !d.att.length ? `<button class="btn" data-act="day-cancel" data-id="${d.id}">Cancel this day</button>` : ''}${d.status !== 'planned' && !d.att.length ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>
     ${d.att.length && d.status !== 'cancelled' ? '<p class="small muted">People are checked in on this day, so it can’t be cancelled or moved back. Remove their check-ins first.</p>' : ''}` : ''}
+  ${isStaff(r) && d.status !== 'cancelled' && d.date <= today() ? dprPanel(d, can.dpr(r) && (dayEditable(d, r) || (!d.dpr && d.date >= isoD(dayOff(-1))))) : ''}
+  ${isStaff(r) && can.costs(r) ? `<button class="btn ghost sm" data-act="cdate" data-id="${d.date}" style="justify-self:start">${icon('cash', 16)}Daily costs for this day · ${inr(costsOf(d.pid).filter(c => c.date === d.date).reduce((t, c) => t + c.amount, 0))}</button>` : ''}
   ${edit && d.status !== 'cancelled' && d.date <= today() ? `<section class="panel stack"><h3>Gate check-in</h3><form class="row" data-form="checkin" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Crew ID<input type="text" id="ci-code" class="mono" placeholder="e.g. ${esc(memberIn(d.pid, 'u_imran')?.code || 'AB12CD')}" autocomplete="off"></label><button class="btn primary" type="submit">Check in</button></form><p class="err" id="ci-err"></p><p class="small muted">In the live app the gate scans the QR on each Crew ID. These days fill everyone’s invoices.</p></section>` : ''}
   ${isStaff(r) ? `<section class="panel"><h3>Checked in (${present.length})</h3>${present.length ? `<ul class="feed">${present.map(m => `<li>${av(user(m.userId), 26)}<span class="spread"><span><b>${esc(user(m.userId).name)}</b> · ${esc(m.job)}</span>${edit ? `<button class="btn ghost sm" data-act="uncheck" data-id="${d.id}" data-u="${m.userId}">Remove</button>` : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No one checked in.</p>'}</section>`
     : `<section class="panel"><p>${d.att.includes(S.session) ? '✓ You were checked in on this day.' : d.status === 'cancelled' ? 'No shoot on this day.' : d.date >= today() ? `You’re called at <b>${esc(d.call)}</b>${d.location ? ' at ' + esc(d.location) : ''}. Show your Crew ID at the gate.` : 'You weren’t checked in on this day.'}</p></section>`}`;
+}
+
+/* ---------- daily costs: each day's spend by cost head, typed in or imported from the CrewDesk Excel template */
+const COST_HEADS = [...Object.keys(DEPTS), 'Location & permits', 'Miscellaneous'];
+const HEAD_ALIAS = [[/cater|food|meal|lunch|tea|water/, 'Catering & Hospitality'], [/locat|permit|noc|police|society/, 'Location & permits'], [/generat|genset|diesel|light/, 'Lighting'],
+  [/car|tempo|travel|transport|fuel|petrol|toll|cab/, 'Transport'], [/rent|hire|vendor|vanity|service/, 'Vendors & Services'], [/junior|artist|cast|actor/, 'Cast'], [/prop|set|art/, 'Art'],
+  [/costume|wardrobe|laundry/, 'Costume'], [/makeup|hair/, 'Hair & Makeup'], [/medic|first aid|security|guard/, 'Safety & Medical'], [/misc|other|sundry|petty/, 'Miscellaneous']];
+const MODES = {bank:'Bank / UPI', cash:'Cash', petty:'Petty cash', credit:'Credit (pay later)'};
+function matchHead(s){
+  const t = String(s || '').trim().toLowerCase(); if (!t) return '';
+  return COST_HEADS.find(h => h.toLowerCase() === t) || COST_HEADS.find(h => h.toLowerCase().startsWith(t) || t.startsWith(h.toLowerCase())) || HEAD_ALIAS.find(([re]) => re.test(t))?.[1] || '';
+}
+const normMode = s => { const m = String(s || '').trim().toLowerCase() || 'bank';
+  return m.startsWith('petty') ? 'petty' : m.startsWith('cash') ? 'cash' : /^(credit|unpaid|pay later)/.test(m) ? 'credit' : /^(bank|upi|neft|rtgs|imps|cheque|card)/.test(m) ? 'bank' : ''; };
+const costsOf = pid => (S.costs || []).filter(c => c.pid === pid);
+const floatsOf = pid => (S.floats || []).filter(f => f.pid === pid);
+// petty cash: given minus spent, per holder
+function pettyBook(pid){
+  const by = {};
+  floatsOf(pid).forEach(f => { (by[f.holder] ||= {given:0, spent:0}).given += f.amount; });
+  costsOf(pid).filter(c => c.mode === 'petty' && c.holder).forEach(c => { (by[c.holder] ||= {given:0, spent:0}).spent += c.amount; });
+  return Object.entries(by).map(([u, x]) => ({u, ...x, left:x.given - x.spent})).sort((a, b) => b.given - a.given);
+}
+// a date (shoot day or not) locks like the call sheet: once the next day is over, or once attendance is confirmed
+const dateLocked = (pid, ds) => ds < isoD(dayOff(-1)) || S.days.some(d => d.pid === pid && d.date === ds && d.confirmedAt);
+const dateUnlock = (pid, ds) => (S.unlocks || []).find(q => q.pid === pid && q.date === ds && q.status === 'approved' && q.expiresAt > Date.now());
+const datePending = (pid, ds) => (S.unlocks || []).find(q => q.pid === pid && q.date === ds && q.status === 'pending');
+const dateEditable = (pid, ds, r = myRole()) => !dateLocked(pid, ds) || can.grantUnlock(r) || !!dateUnlock(pid, ds);
+// spend to date by budget head: invoices raised through CrewDesk plus daily cost lines
+function budgetRows(p, ym){
+  const inv = {}, cost = {}, mInv = {}, mCost = {};
+  S.invoices.filter(i => i.pid === p.id && i.status !== 'rejected').forEach(i => { inv[i.dept] = (inv[i.dept] || 0) + i.amount; if (i.to.startsWith(ym)) mInv[i.dept] = (mInv[i.dept] || 0) + i.amount; });
+  costsOf(p.id).forEach(c => { cost[c.head] = (cost[c.head] || 0) + c.amount; if (c.date.startsWith(ym)) mCost[c.head] = (mCost[c.head] || 0) + c.amount; });
+  return [...new Set([...Object.keys(p.budget || {}), ...Object.keys(inv), ...Object.keys(cost)])].map(h => {
+    const b = p.budget?.[h] || 0, used = (inv[h] || 0) + (cost[h] || 0);
+    return {h, b, inv:inv[h] || 0, cost:cost[h] || 0, used, month:(mInv[h] || 0) + (mCost[h] || 0), pct:b ? Math.round(used / b * 100) : null};
+  }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.used - a.used);
+}
+function costLock(pid, ds){
+  const r = myRole(), nm = id => esc(user(id)?.name || 'someone');
+  if (!dateLocked(pid, ds)) return ds === today() || ds === isoD(dayOff(-1)) ? `<p class="small muted">${icon('check', 14)} Open for entries until the end of ${ds === today() ? 'tomorrow' : 'today'}, or until the Auditor confirms the day’s attendance.</p>` : '';
+  const un = dateUnlock(pid, ds), pend = datePending(pid, ds);
+  let h = `<p class="lockline">${icon('lock', 16)}<span><b>${fmtD(ds)} is locked.</b> Changes need permission from the Commercial Head or a Commercial Manager.</span></p>`;
+  if (can.grantUnlock(r)) h += '<p class="small muted">You can change it: you give that permission.</p>';
+  else if (un) h += `<p class="small">Open for changes until <b>${new Date(un.expiresAt).toLocaleString('en-IN', {weekday:'short', hour:'2-digit', minute:'2-digit'})}</b> · allowed by ${nm(un.decidedBy)}</p>`;
+  else if (pend) h += `<p class="small"><b>${nm(pend.by)}</b> asked ${fmtT(pend.at)}: ${esc(pend.reason)} <span class="muted">· waiting</span></p>`;
+  else if (can.askUnlock(r)) h += `<button class="btn sm" data-act="unlock-ask" data-date="${ds}" style="justify-self:start">${icon('lock', 15)}Ask for permission to change it</button>`;
+  return `<section class="panel stack lockpanel locked">${h}</section>`;
+}
+function costsView(){
+  const p = proj(U.pid), r = myRole(), office = can.costs(r);
+  const book = pettyBook(p.id), mine = book.find(b => b.u === S.session);
+  if (!office) return `${projHead('My petty cash', '<p class="muted">Cash the production office gave you. Hand bills for what you spend to Accounts; they enter them against your name.</p>')}
+    ${mine ? `<div class="kpis"><div class="kpi"><span class="eyebrow">Given to you</span><span class="v">${inr(mine.given)}</span></div><div class="kpi"><span class="eyebrow">Spent</span><span class="v">${inr(mine.spent)}</span></div><div class="kpi"><span class="eyebrow">Left with you</span><span class="v">${inr(mine.left)}</span></div></div>
+      <section class="panel"><h2>Spent from your float</h2>${costTable(costsOf(p.id).filter(c => c.mode === 'petty' && c.holder === S.session).sort((a, b) => b.date.localeCompare(a.date)), false, true)}</section>` : '<div class="empty">No petty cash given to you on this production.</div>'}`;
+  const ds = U.cdate || today(), ym = ds.slice(0, 7), all = costsOf(p.id), rows = all.filter(c => c.date === ds).sort((a, b) => a.at - b.at);
+  const edit = dateEditable(p.id, ds, r), dayTot = rows.reduce((s, c) => s + c.amount, 0), monthTot = all.filter(c => c.date.startsWith(ym)).reduce((s, c) => s + c.amount, 0);
+  const sd = S.days.find(d => d.pid === p.id && d.date === ds), br = budgetRows(p, ym), bud = br.reduce((s, x) => s + x.b, 0), used = br.reduce((s, x) => s + x.used, 0);
+  const holders = S.members.filter(m => m.pid === p.id && !m.removed && !m.pending && !m.synthetic && isStaff(m.role));
+  const batches = Object.values(all.filter(c => c.batch).reduce((o, c) => { const b = o[c.batch] ||= {id:c.batch, n:0, t:0, by:c.by, at:c.at, dates:new Set()}; b.n++; b.t += c.amount; b.dates.add(c.date); return o; }, {})).sort((a, b) => b.at - a.at).slice(0, 4);
+  const shift = n => { const d = new Date(ds + 'T12:00'); d.setDate(d.getDate() + n); return isoD(d); };
+  return `${projHead('Daily costs', `<p class="muted">Everything spent each day, by budget head. Type a line in, or fill the Excel template and import the whole day at once. Only the production office, Accounts and the Auditor see this.</p>
+    <div class="row"><button class="btn" data-act="cost-template">${icon('down', 16)}Excel template</button><label class="btn primary filebtn">${icon('upload', 16)}Import Excel<input type="file" accept=".xlsx,.xls,.csv" data-change="cost-file" hidden></label>${can.giveFloat(r) ? `<button class="btn" data-act="float">${icon('plus', 16)}Give petty cash</button>` : ''}</div>`)}
+  <div class="spread"><div class="row"><button class="btn sm" data-act="cdate" data-id="${shift(-1)}" aria-label="Previous day">${icon('back', 16)}</button>
+    <label class="f datepick"><span class="sr">Date</span><input type="date" value="${ds}" max="${isoD(dayOff(30))}" data-change="cdate"></label>
+    <button class="btn sm" data-act="cdate" data-id="${shift(1)}" aria-label="Next day"><span style="display:inline-flex;transform:scaleX(-1)">${icon('back', 16)}</span></button>${ds !== today() ? `<button class="btn ghost sm" data-act="cdate" data-id="${today()}">Today</button>` : ''}</div>
+    <p class="small muted">${sd ? `Shoot day · ${esc(epsLabel(sd))} · ${sd.att.length} checked in` : 'No shoot on this day'}</p></div>
+  ${costLock(p.id, ds)}
+  <div class="kpis">
+    <div class="kpi"><span class="eyebrow">${ds === today() ? 'Today' : fmtD(ds)}</span><span class="v">${shortInr(dayTot)}</span><span class="s">${rows.length} line${rows.length === 1 ? '' : 's'}${sd?.att.length ? ` · ${inr(Math.round(dayTot / sd.att.length))} a head` : ''}</span></div>
+    <div class="kpi"><span class="eyebrow">${ymShort(ym)} daily costs</span><span class="v">${shortInr(monthTot)}</span><span class="s">not counting invoices</span></div>
+    <div class="kpi"><span class="eyebrow">Budget used</span><span class="v">${bud ? Math.round(used / bud * 100) + '%' : '—'}</span><span class="s">${shortInr(used)} of ${bud ? shortInr(bud) : 'no budget'}</span></div>
+    <div class="kpi"><span class="eyebrow">Petty cash out</span><span class="v">${shortInr(book.reduce((s, b) => s + Math.max(0, b.left), 0))}</span><span class="s">with ${book.filter(b => b.left > 0).length} ${book.filter(b => b.left > 0).length === 1 ? 'person' : 'people'}</span></div>
+  </div>
+  <section class="panel stack"><div class="spread"><h2>Lines for ${fmtD(ds)}</h2>${rows.length ? `<span class="num"><b>${inr(dayTot)}</b></span>` : ''}</div>
+    ${costTable(rows, edit)}
+    ${edit ? `<form class="costadd" data-form="costadd" data-input="costcalc">
+      <label class="f">Cost head<select id="ca-head" required><option value="">Pick…</option>${opt(COST_HEADS, U.chead || '')}</select></label>
+      <label class="f">Item<input type="text" id="ca-item" maxlength="80" placeholder="e.g. Unit lunch"></label>
+      <label class="f">Paid to<input type="text" id="ca-payee" maxlength="120" placeholder="Vendor or person"></label>
+      <label class="f sm">Qty<input type="number" id="ca-qty" min="0" step="any" inputmode="decimal" placeholder="1"></label>
+      <label class="f sm">Rate ₹<input type="number" id="ca-rate" min="0" step="any" inputmode="decimal"></label>
+      <label class="f sm">Amount ₹<input type="number" id="ca-amt" min="1" step="1" inputmode="numeric" placeholder="qty × rate"></label>
+      <label class="f">Paid by<select id="ca-mode" data-change="ca-mode">${opt(Object.entries(MODES), U.cmode || 'bank')}</select></label>
+      <label class="f${(U.cmode || 'bank') === 'petty' ? '' : ' hidden'}" id="ca-holder-f">Whose petty cash<select id="ca-holder">${opt(holders.map(m => [m.userId, user(m.userId).name]), '')}</select></label>
+      <label class="f sm">Bill no<input type="text" id="ca-bill" maxlength="40"></label>
+      <button class="btn primary" type="submit">${icon('plus', 16)}Add line</button><p class="err" id="ca-err"></p></form>
+      <p class="small muted">People who raise invoices in CrewDesk are already counted. Enter only what is paid outside it: vendors’ day bills, cash, petty cash, permits.</p>` : ''}
+  </section>
+  <section class="panel"><div class="spread" style="margin-bottom:10px"><h2>Budget vs actual</h2><span class="small muted">to date · ${ymShort(ym)} column is this month</span></div>
+      <div class="tablewrap"><table><thead><tr><th>Head</th><th class="r">Budget</th><th class="r">Invoices</th><th class="r">Daily costs</th><th class="r">${ymShort(ym)}</th><th class="r">Used</th></tr></thead><tbody>
+      ${br.map(x => `<tr><td>${esc(x.h)}</td><td class="r num">${x.b ? shortInr(x.b) : '<span class="muted">—</span>'}</td><td class="r num">${x.inv ? shortInr(x.inv) : '—'}</td><td class="r num">${x.cost ? shortInr(x.cost) : '—'}</td><td class="r num">${x.month ? shortInr(x.month) : '—'}</td>
+        <td class="r num">${x.pct === null ? '<span class="chip warn">No budget</span>' : `<span class="${x.pct > 100 ? 'flag' : x.pct > 85 ? 'warnc' : ''}">${x.pct}%</span>`}</td></tr>`).join('') || '<tr><td colspan="6"><div class="empty">No budget or spend yet.</div></td></tr>'}</tbody></table></div></section>
+  <div class="cols">
+      <section class="panel"><div class="spread" style="margin-bottom:8px"><h2>Petty cash</h2>${can.giveFloat(r) ? `<button class="btn sm" data-act="float">${icon('plus', 15)}Give</button>` : ''}</div>
+        ${book.length ? `<ul class="feed">${book.map(b => `<li>${av(user(b.u), 26)}<span class="spread"><span><b>${esc(user(b.u)?.name || '')}</b><span class="sub">given ${inr(b.given)} · spent ${inr(b.spent)}</span></span><b class="num ${b.left < 0 ? 'flag' : ''}">${inr(b.left)}</b></span></li>`).join('')}</ul>${book.some(b => b.left < 0) ? '<p class="small" style="color:var(--bad);margin-top:8px">A negative balance means more was entered as petty cash than was given. Check the bills or record the top-up.</p>' : ''}` : '<p class="muted small">No petty cash given yet.</p>'}</section>
+      ${batches.length ? `<section class="panel"><h2>Excel imports</h2><ul class="feed" style="margin-top:8px">${batches.map(b => { const ok = [...b.dates].every(x => dateEditable(p.id, x, r));
+        return `<li>${icon('table', 18)}<span class="spread"><span><b>${b.n} lines · ${inr(b.t)}</b><span class="sub">${esc(user(b.by)?.name || '')} · ${fmtT(b.at)} · ${[...b.dates].sort().map(x => fmtD(x).replace(/ \d{4}$/, '')).join(', ')}</span></span>${ok ? `<button class="btn ghost sm" data-act="cost-undo" data-id="${b.id}">Undo</button>` : `<span class="small muted" title="Locked">${icon('lock', 14)}</span>`}</span></li>`; }).join('')}</ul></section>` : ''}
+  </div>`;
+}
+function costTable(rows, edit, short = false){
+  if (!rows.length) return '<div class="empty">Nothing entered for this day yet.</div>';
+  return `<div class="tablewrap"><table class="costs"><thead><tr>${short ? '<th>Date</th>' : ''}<th>Head</th><th>What</th><th>Paid to</th><th class="r">Qty × rate</th><th class="r">Amount</th><th>Paid by</th>${short ? '' : '<th>Entered</th>'}${edit ? '<th></th>' : ''}</tr></thead><tbody>
+  ${rows.map(c => `<tr>${short ? `<td class="num">${fmtD(c.date)}</td>` : ''}<td>${esc(c.head)}</td><td>${esc(c.item || '—')}${c.descr ? `<span class="sub">${esc(c.descr)}</span>` : ''}${c.bill ? `<span class="sub mono">Bill ${esc(c.bill)}</span>` : ''}</td><td>${esc(c.payee || '—')}</td>
+    <td class="r num">${c.rate ? `${+c.qty} × ${inr(c.rate)}` : '<span class="muted">—</span>'}</td><td class="r num"><b>${inr(c.amount)}</b></td>
+    <td><span class="chip ${{bank:'info', cash:'warn', petty:'gold', credit:'bad'}[c.mode]}">${MODES[c.mode].replace(/ \(.*/, '')}</span>${c.mode === 'petty' && c.holder ? `<span class="sub">${esc(user(c.holder)?.name || '')}</span>` : ''}</td>
+    ${short ? '' : `<td><span class="small">${esc(user(c.by)?.name || '')}</span>${c.source === 'excel' ? '<span class="sub">from Excel</span>' : ''}</td>`}
+    ${edit ? `<td class="r"><button class="btn ghost sm" data-act="cost-del" data-id="${c.id}" aria-label="Delete ${esc(c.head)} ${inr(c.amount)}">${icon('x', 15)}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+}
+// the template: an empty sheet to fill, the heads and budgets, a worked example and how to fill it
+function costTemplate(){
+  if (!window.XLSX) return toast('Excel needs an internet connection. Try again when you’re online.');
+  const p = proj(U.pid), wb = XLSX.utils.book_new(), cols = ['Date','Cost head','Item','Description','Paid to','Qty','Rate','Amount','Paid by','Petty cash holder','Bill no','Notes'];
+  const widths = [12, 24, 22, 30, 24, 7, 10, 11, 14, 20, 10, 24].map(wch => ({wch}));
+  const d0 = new Date(today() + 'T12:00'), lp = S.members.find(m => m.pid === p.id && m.role === 'lp' && !m.removed);
+  const sheet = (aoa, w) => { const ws = XLSX.utils.aoa_to_sheet(aoa, {cellDates:true, dateNF:'dd-mmm-yyyy'}); ws['!cols'] = w; return ws; };
+  XLSX.utils.book_append_sheet(wb, sheet([cols, [d0]], widths), 'Daily costs');
+  XLSX.utils.book_append_sheet(wb, sheet([cols,
+    [d0, 'Catering & Hospitality', 'Unit lunch', '62 plates, veg + non-veg', 'Annapurna Caterers', 62, 180, '', 'Bank', '', 'AC-118', ''],
+    [d0, 'Transport', 'Innova x3', 'Artist pick-up and drop', 'Shree Travels', 3, 3000, '', 'Credit', '', '', 'Billed weekly'],
+    [d0, 'Art', 'Props hire', 'Brass utensils for the puja scene', 'Chor Bazaar', 1, '', 4500, 'Petty cash', lp ? user(lp.userId).name : 'Line Producer', '', ''],
+    [d0, 'Location & permits', 'Society NOC', '', 'Shanti Nagar CHS', 1, '', 15000, 'Cash', '', 'R-22', 'Receipt with Accounts']], widths), 'Example');
+  XLSX.utils.book_append_sheet(wb, sheet([['Cost head', 'Budget (₹)'], ...COST_HEADS.map(h => [h, p.budget?.[h] || ''])], [{wch:28}, {wch:14}]), 'Cost heads');
+  XLSX.utils.book_append_sheet(wb, sheet([['How to fill the Daily costs sheet'], [''],
+    ['1. One row per payment. Keep the column names in row 1 as they are.'], ['2. Date: the day the cost was for, like 30-Oct-2026 or 30/10/2026.'],
+    ['3. Cost head: copy one from the Cost heads sheet, so it counts against the right budget.'], ['4. Amount, or Qty and Rate (CrewDesk works out Qty × Rate).'],
+    ['5. Paid by: Bank (also UPI, NEFT, cheque), Cash, Petty cash or Credit (to pay later).'], ['6. Petty cash rows: write whose cash paid it, exactly as their name is in CrewDesk.'],
+    ['7. Don’t enter people who raise invoices in CrewDesk. Their invoices are already counted.'], ['8. In CrewDesk, Daily costs → Import Excel. You see every row before it goes in. Rows with a problem are shown with the row number.'],
+    ['9. Days lock after the next day ends, or once the Auditor confirms attendance. Changing a locked day needs the Commercial Head’s or a Commercial Manager’s permission.']], [{wch:110}]), 'How to fill');
+  XLSX.writeFile(wb, `CrewDesk-daily-costs-${p.name.replace(/[^A-Za-z0-9]+/g, '-')}.xlsx`); toast('Template downloaded. Fill the Daily costs sheet, then Import Excel.');
+}
+function excelDate(v){
+  if (v instanceof Date && !isNaN(v)) return isoD(new Date(v.getTime() + 432e5));
+  if (typeof v === 'number' && v > 20000 && v < 80000){ const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 864e5); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
+  const s = String(v ?? '').trim(); let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/))) return `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const t = Date.parse(s.replace(/-/g, ' ')); return s && !isNaN(t) ? isoD(new Date(t + 432e5)) : '';
+}
+const COST_COLS = {date:['date','day'], head:['costhead','head','category','department','dept','budgethead'], item:['item','particulars','expense'], descr:['description','details','descr'],
+  payee:['paidto','payee','vendor','party','supplier'], qty:['qty','quantity','nos','units'], rate:['rate','price','unitrate'], amount:['amount','total','amt','value','amountrs'],
+  mode:['paidby','mode','payment','paymentmode'], holder:['pettycashholder','holder','pettyholder','pettycashwith'], bill:['billno','bill','invoiceno','receipt','receiptno','voucher','voucherno'], notes:['notes','remarks','note','comment']};
+async function readCostFile(file){
+  if (!window.XLSX) throw new Error('Excel needs an internet connection. Try again when you’re online.');
+  const wb = XLSX.read(await file.arrayBuffer(), {type:'array', cellDates:true});
+  const name = wb.SheetNames.find(n => /daily/i.test(n)) || wb.SheetNames.find(n => !/example|head|how/i.test(n)) || wb.SheetNames[0];
+  const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], {defval:'', raw:true});
+  const key = k => { const n = String(k).toLowerCase().replace(/[^a-z]/g, ''); return Object.keys(COST_COLS).find(c => COST_COLS[c].includes(n)); };
+  const p = proj(U.pid), out = [], people = S.members.filter(m => m.pid === p.id && !m.removed && !m.pending);
+  raw.forEach((row, i) => {
+    const x = {}; Object.entries(row).forEach(([k, v]) => { const c = key(k); if (c && x[c] === undefined) x[c] = v; });
+    const txt = c => String(x[c] ?? '').trim(), num = c => { const s = txt(c).replace(/[₹,\s]/g, ''); return s === '' ? null : Number(s); };
+    if (!['head','item','payee','amount','rate','descr'].some(c => txt(c))) return;      // blank or date-only row
+    const r = {n:i + 2, date:excelDate(x.date), head:matchHead(txt('head')), headIn:txt('head'), item:txt('item'), descr:txt('descr'), payee:txt('payee'), qty:num('qty') ?? 1, rate:num('rate'), bill:txt('bill'), notes:txt('notes'), mode:normMode(txt('mode')), errs:[], warn:''};
+    r.amount = num('amount') ?? (r.rate !== null && !isNaN(r.rate) ? Math.round(r.qty * r.rate) : null);
+    if (!r.date) r.errs.push('date missing or not a date'); else if (r.date > isoD(dayOff(30))) r.errs.push('date is too far ahead'); else if (!dateEditable(p.id, r.date)) r.errs.push(`${fmtD(r.date)} is locked`);
+    if (!r.headIn) r.errs.push('cost head missing'); else if (!r.head){ r.head = r.headIn.slice(0, 60); r.warn = 'not a budget head'; }
+    if ([r.qty, r.rate, r.amount].some(v => v !== null && isNaN(v))) r.errs.push('qty, rate and amount must be numbers'); else if (!(r.amount > 0)) r.errs.push('amount missing'); else if (r.qty <= 0) r.errs.push('qty must be more than 0');
+    if (!r.mode) r.errs.push('“Paid by” must be Bank, Cash, Petty cash or Credit');
+    if (r.mode === 'petty'){ const h = people.find(m => user(m.userId)?.name.toLowerCase() === txt('holder').toLowerCase()); if (h) r.holder = h.userId; else r.errs.push(txt('holder') ? `no one called “${txt('holder')}” on this production` : 'say whose petty cash'); }
+    out.push(r);
+  });
+  return {name:file.name, sheet:name, rows:out};
+}
+// overtime past a 12-hour shift, from the daily report
+const hhmm = t => { const [h, m] = String(t || '').split(':').map(Number); return h * 60 + m; };
+const hm = n => `${Math.floor(n / 60)}h${n % 60 ? ' ' + String(n % 60).padStart(2, '0') + 'm' : ''}`;
+function shiftOf(r){ if (!r?.call || !r?.wrap) return null; let s = hhmm(r.wrap) - hhmm(r.call); if (s <= 0) s += 1440; return {s, ot:Math.max(0, s - 720)}; }
+function dprPanel(d, edit){
+  const r = d.dpr, sh = shiftOf(r), meals = d.att.length;
+  const facts = r ? `<dl class="dl"><dt>Actual call</dt><dd class="mono">${esc(r.call || '—')}</dd><dt>First shot</dt><dd class="mono">${esc(r.first || '—')}${r.call && r.first ? ` <span class="muted small">${hm(Math.max(0, hhmm(r.first) - hhmm(r.call)))} after call</span>` : ''}</dd>
+      <dt>Lunch</dt><dd>${r.lunch != null ? r.lunch + ' min' : '—'}</dd><dt>Wrap</dt><dd class="mono">${esc(r.wrap || '—')}</dd>
+      <dt>Shift</dt><dd>${sh ? `${hm(sh.s)}${sh.ot ? ` <span class="chip bad">${hm(sh.ot)} overtime</span>` : ' <span class="chip good">within 12h</span>'}` : '—'}</dd>
+      <dt>Scenes</dt><dd>${r.shot ?? '—'} of ${r.planned ?? '—'} shot${r.planned && r.shot < r.planned ? ` <span class="chip warn">${r.planned - r.shot} carried over</span>` : ''}</dd><dt>Minutes shot</dt><dd>${r.minutes ?? '—'}</dd>
+      ${r.delay ? `<dt>Delay</dt><dd>${esc(r.delay)}</dd>` : ''}<dt>Meals</dt><dd>${meals} people checked in</dd></dl><p class="small muted">Filed by ${esc(user(r.by)?.name || '')} · ${fmtT(r.at)}</p>` : '';
+  if (!edit) return r ? `<section class="panel stack"><h3>Daily production report</h3>${facts}</section>` : '';
+  if (r && !U.dprEdit) return `<section class="panel stack"><div class="spread"><h3>Daily production report</h3><button class="btn ghost sm" data-act="dpr-edit">Edit</button></div>${facts}</section>`;
+  const v = r || {call:d.call, wrap:'', first:'', lunch:45};
+  return `<section class="panel stack"><h3>Daily production report</h3><p class="small muted">File it at wrap. Overtime past 12 hours is worked out for you, and the meal count comes from gate check-ins (${meals} today).</p>
+    <form class="stack" data-form="dpr"><div class="grid4"><label class="f">Actual call<input type="time" id="dp-call" value="${esc(v.call || '')}" required></label><label class="f">First shot<input type="time" id="dp-first" value="${esc(v.first || '')}"></label>
+      <label class="f">Lunch (min)<input type="number" id="dp-lunch" min="0" max="240" value="${v.lunch ?? ''}"></label><label class="f">Wrap<input type="time" id="dp-wrap" value="${esc(v.wrap || '')}" required></label></div>
+      <div class="grid3"><label class="f">Scenes planned<input type="number" id="dp-plan" min="0" value="${v.planned ?? ''}"></label><label class="f">Scenes shot<input type="number" id="dp-shot" min="0" value="${v.shot ?? ''}"></label><label class="f">Minutes shot<input type="number" id="dp-min" min="0" step="0.5" value="${v.minutes ?? ''}"></label></div>
+      <label class="f">Delay, if any <span class="hint">what and how long, e.g. rain 2–3 pm, artist late 40 min</span><input type="text" id="dp-delay" maxlength="300" value="${esc(v.delay || '')}"></label>
+      <p class="err" id="dp-err"></p><div class="row"><button class="btn primary" type="submit">File report</button>${r ? '<button class="btn ghost" type="button" data-act="dpr-edit">Cancel</button>' : ''}</div></form></section>`;
+}
+function dprValues(){
+  const n = id => val(id) === '' ? null : +val(id);
+  return {call:val('dp-call'), first:val('dp-first'), lunch:n('dp-lunch'), wrap:val('dp-wrap'), planned:n('dp-plan'), shot:n('dp-shot'), minutes:n('dp-min'), delay:val('dp-delay')};
+}
+function costForm(){
+  const head = val('ca-head'), q = val('ca-qty') === '' ? 1 : +val('ca-qty'), rt = val('ca-rate') === '' ? null : +val('ca-rate'), amt = val('ca-amt') === '' ? (rt ? Math.round(q * rt) : 0) : Math.round(+val('ca-amt')), mode = val('ca-mode');
+  if (!head) return err('ca-err', 'Pick the cost head.');
+  if (!(q > 0) || !(amt > 0)) return err('ca-err', 'Enter the amount, or quantity and rate.');
+  if (mode === 'petty' && !val('ca-holder')) return err('ca-err', 'Say whose petty cash paid this.');
+  return {date:U.cdate || today(), head, item:val('ca-item'), descr:'', payee:val('ca-payee'), qty:q, rate:rt, amount:amt, mode, holder:mode === 'petty' ? val('ca-holder') : null, bill:val('ca-bill'), notes:''};
+}
+function costImportBody(M){
+  const bad = M.rows.filter(r => r.errs.length), good = M.rows.filter(r => !r.errs.length), tot = good.reduce((s, r) => s + r.amount, 0);
+  const byDate = {}; good.forEach(r => byDate[r.date] = (byDate[r.date] || 0) + r.amount);
+  return `<div class="stack" style="gap:4px"><div class="spread"><h2>Check before importing</h2><button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button></div>
+    <p class="muted small">${esc(M.name)} · sheet “${esc(M.sheet)}” · ${M.rows.length} row${M.rows.length === 1 ? '' : 's'} with data</p></div>
+  ${!M.rows.length ? '<div class="empty">No rows found. Fill the “Daily costs” sheet of the template, one payment per row.</div>' : `
+  ${bad.length ? `<p class="lockline">${icon('x', 16)}<span><b>${bad.length} row${bad.length === 1 ? ' has' : 's have'} a problem.</b> Fix ${bad.length === 1 ? 'it' : 'them'} in Excel and import again. Nothing goes in until every row is right.</span></p>` : `<p class="okline">${icon('check', 16)}<span><b>All ${good.length} rows are fine</b> · ${inr(tot)} across ${Object.keys(byDate).length} day${Object.keys(byDate).length === 1 ? '' : 's'}: ${Object.entries(byDate).sort().map(([d, t]) => `${fmtD(d).replace(/ \d{4}$/, '')} ${shortInr(t)}`).join(' · ')}</span></p>`}
+  <div class="tablewrap" style="max-height:46vh"><table class="costs"><thead><tr><th>Row</th><th>Date</th><th>Head</th><th>What</th><th>Paid to</th><th class="r">Amount</th><th>Paid by</th></tr></thead><tbody>
+  ${[...bad, ...good].map(r => `<tr class="${r.errs.length ? 'rowbad' : ''}"><td class="num">${r.n}</td><td class="num">${r.date ? fmtD(r.date).replace(/ \d{4}$/, '') : '—'}</td><td>${esc(r.head || r.headIn || '—')}${r.warn ? `<span class="sub" style="color:var(--marigold)">${r.warn}</span>` : r.headIn && r.head !== r.headIn ? `<span class="sub">from “${esc(r.headIn)}”</span>` : ''}</td>
+    <td>${esc(r.item || '—')}${r.errs.length ? `<span class="sub" style="color:var(--bad)">${esc(r.errs.join('; '))}</span>` : ''}</td><td>${esc(r.payee || '—')}</td><td class="r num">${r.amount > 0 ? inr(r.amount) : '—'}</td><td>${r.mode ? MODES[r.mode].replace(/ \(.*/, '') : '—'}${r.holder ? `<span class="sub">${esc(user(r.holder).name)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>`}
+  <p class="err" id="ci2-err"></p>
+  <div class="row"><button class="btn primary" data-act="cost-import" ${bad.length || !good.length ? 'disabled' : ''}>Import ${good.length} line${good.length === 1 ? '' : 's'} · ${inr(tot)}</button><button class="btn ghost" data-act="close-modal">Cancel</button></div>`;
 }
 
 /* ---------- tasks: a board, a table by department and a calendar, like a production Monday.com */
@@ -1083,7 +1318,13 @@ function workbookData(pid){
     ['Invoiced cost (₹, before GST)', ms.approved + ms.pending], ['Worked, not invoiced yet (₹)', ms.unbilled], ['Total cost of the month (₹)', ms.total], ['Cost per shoot day (₹)', ms.shot ? Math.round(ms.total / ms.shot) : 0],
     ['Cost per episode (₹)', ms.eps ? Math.round(ms.total / ms.eps) : 0], ['Paid out in the month (₹)', ms.paid], ['Approved, waiting for payment (₹)', ms.toPay], ['Exported', new Date().toLocaleString('en-IN')]].map(([Item, Value]) => ({Item, Value}));
   sh['Cost by department'] = [...new Set([...Object.keys(ms.byDept), ...Object.keys(p.budget || {})])].map(d => { const b = ms.byDept[d] || {billed:0, unbilled:0}; return {Department:d, 'Invoiced (₹)':b.billed, 'Worked, not invoiced (₹)':b.unbilled, 'Month total (₹)':b.billed + b.unbilled, 'Total budget (₹)':p.budget?.[d] || 0}; });
-  sh['Shoot days'] = daysOf(pid).map(d => ({Date:d.date, Status:DAY[d.status][0], Episodes:d.epFrom ? epsLabel(d) : '', Location:d.location, Call:d.call, Wrap:d.wrap, 'Checked in':d.att.length, Note:d.note || ''}));
+  sh['Shoot days'] = daysOf(pid).map(d => { const x = d.dpr || {}, s = shiftOf(x); return {Date:d.date, Status:DAY[d.status][0], Episodes:d.epFrom ? epsLabel(d) : '', Location:d.location, Call:d.call, Wrap:d.wrap, 'Checked in':d.att.length,
+    'Actual call':x.call || '', 'First shot':x.first || '', 'Actual wrap':x.wrap || '', 'Overtime (min)':s ? s.ot : '', 'Scenes planned':x.planned ?? '', 'Scenes shot':x.shot ?? '', 'Minutes shot':x.minutes ?? '', Delay:x.delay || '', Note:d.note || ''}; });
+  if (can.costs(r)){
+    sh['Daily costs'] = costsOf(pid).filter(c => c.date.startsWith(ym)).sort((a, b) => a.date.localeCompare(b.date)).map(c => ({Date:c.date, 'Cost head':c.head, Item:c.item || '', Description:c.descr || '', 'Paid to':c.payee || '', Qty:+c.qty, 'Rate (₹)':c.rate || '', 'Amount (₹)':c.amount, 'Paid by':MODES[c.mode], 'Petty cash holder':c.holder ? user(c.holder)?.name || '' : '', 'Bill no':c.bill || '', 'Entered by':user(c.by)?.name || '', Source:c.source === 'excel' ? 'Excel' : 'Typed'}));
+    sh['Budget vs actual'] = budgetRows(p, ym).map(x => ({Head:x.h, 'Budget (₹)':x.b, 'Invoices to date (₹)':x.inv, 'Daily costs to date (₹)':x.cost, 'Used to date (₹)':x.used, 'Used %':x.pct ?? '', [`${ymLabel(ym)} (₹)`]:x.month}));
+    sh['Petty cash'] = pettyBook(pid).map(b => ({Holder:user(b.u)?.name || '', 'Given (₹)':b.given, 'Spent (₹)':b.spent, 'Balance (₹)':b.left}));
+  }
   KINDS.forEach(([k, label]) => sh[label] = S.members.filter(m => m.pid === pid && m.kind === k).map(m => { const u = user(m.userId), s = stageOf(m); return {Name:u.name, Department:m.dept, Job:m.job, Access:ROLES[m.role].label, 'Rate (₹)':m.rate || '', Per:UNITS[m.unit], Joining:m.joining, 'TDS section':TDS[m.tds]?.label || '', Status:s.next ? NEXT_LABEL[s.next] : 'Onboarded', Agreement:{none:'Not sent', sent:'Sent', signed:'Signed', countersigned:'Approved'}[m.ag?.status || 'none'], Mobile:u.phone, PAN:can.seeKyc(r) ? u.pan : mask(u.pan), 'Crew ID':m.code}; }));
   sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, List:KIND_ONE[member(i.memberId)?.kind] || '', Department:i.dept, From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Deductions (₹)':i.deduction || 0, 'Deduction details':(i.deductions || []).map(d => `${d.label} ${d.amount}: ${d.note}`).join('; '), 'Payable (₹)':i.payable, Remarks:i.remarks || '', Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
   if (fin){
@@ -1226,14 +1467,23 @@ function modalBody(){
       <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Why keep them <span class="hint">the person who asked sees this</span>'}<textarea id="rm-note" rows="2" maxlength="500"></textarea></label>
       <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
+  if (M.type === 'costimport') return costImportBody(M);
+  if (M.type === 'float'){
+    const ppl = S.members.filter(m => m.pid === U.pid && !m.removed && !m.pending && !m.synthetic && isStaff(m.role));
+    return `${head('Give petty cash', 'The holder is told, and what they pay from it comes off their balance')}
+    <form class="stack" data-form="float"><label class="f">To<select id="fl-who" required>${opt(ppl.map(m => [m.userId, `${user(m.userId).name} · ${m.job}`]), ppl.find(m => m.role === 'lp')?.userId)}</select></label>
+      <label class="f">Amount ₹ <span class="hint">negative if cash came back</span><input type="number" id="fl-amt" step="1" inputmode="numeric" required></label>
+      <label class="f">Note <span class="hint">optional</span><input type="text" id="fl-note" maxlength="200" placeholder="e.g. Petty cash for the Umargam block"></label>
+      <p class="err" id="fl-err"></p><div class="row"><button class="btn primary" type="submit">Give</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
   if (M.type === 'unlockask'){
-    const d = S.days.find(x => x.id === M.id);
-    return `${head('Ask to change a locked day', `${fmtD(d.date)} · the Commercial Head and Commercial Managers are asked`)}
+    const ds = M.date || S.days.find(x => x.id === M.id)?.date;
+    return `${head('Ask to change a locked day', `${fmtD(ds)} · the Commercial Head and Commercial Managers are asked`)}
     <form class="stack" data-form="unlockask"><label class="f">What needs changing, and why<textarea id="ul-why" rows="3" maxlength="500" placeholder="e.g. Rohit left at lunch; his check-in should be removed"></textarea></label>
       <p class="err" id="ul-err"></p><div class="row"><button class="btn primary" type="submit">Send request</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'unlockdecide'){
-    const q = (S.unlocks || []).find(x => x.id === M.id), d = S.days.find(x => x.id === q?.dayId);
+    const q = (S.unlocks || []).find(x => x.id === M.id), d = {date:q?.date};
     return `${head(M.yes ? `Allow changes to ${fmtD(d.date)}?` : `Refuse changes to ${fmtD(d.date)}`, `Asked by ${esc(user(q.by)?.name || '')}: ${esc(q.reason)}`)}
     <form class="stack" data-form="unlockdecide"><p class="small muted">${M.yes ? 'The day opens for 24 hours. Every change is logged, and changed attendance goes back to the Auditor.' : 'The person who asked sees your reason.'}</p>
       <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Reason'}<input type="text" id="ud-note" maxlength="300"></label>
@@ -1475,7 +1725,18 @@ const ACT = {
     done(`${i.no}: ${INV[nxt][0].toLowerCase()}`); },
   'att-confirm': el => { const d = S.days.find(x => x.id === el.dataset.id); if (!d || !can.confirmAtt(myRole())) return;
     Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
-  'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id}; renderLayer(); },
+  'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id || null, date:el.dataset.date || S.days.find(x => x.id === el.dataset.id)?.date}; renderLayer(); },
+  cdate: el => { U.cdate = el.dataset.id; U.view = 'costs'; U.drawer = null; render(); },
+  'cost-template': () => costTemplate(),
+  float: () => { U.modal = {type:'float'}; renderLayer(); },
+  'dpr-edit': () => { U.dprEdit = !U.dprEdit; renderLayer(); },
+  'cost-del': el => { const c = S.costs.find(x => x.id === el.dataset.id); if (!c || !dateEditable(c.pid, c.date)) return toast('This day is locked.');
+    S.costs = S.costs.filter(x => x !== c); log(U.pid, 'cost', `Deleted a cost line on ${fmtD(c.date)}: ${c.head}${c.payee ? ' · ' + c.payee : ''} ${inr(c.amount)}`); done('Line deleted'); },
+  'cost-undo': el => { const rows = S.costs.filter(c => c.batch === el.dataset.id); if (rows.some(c => !dateEditable(c.pid, c.date))) return toast('Some of these days are locked now.');
+    S.costs = S.costs.filter(c => c.batch !== el.dataset.id); log(U.pid, 'cost', `Undid an Excel import of ${rows.length} cost lines · ${inr(rows.reduce((t, c) => t + c.amount, 0))}`); done(`Import undone · ${rows.length} lines removed`); },
+  'cost-import': () => { const rows = U.modal.rows.filter(r => !r.errs.length), b = uid('b'), now = Date.now();
+    rows.forEach(r => S.costs.push({id:uid('c'), pid:U.pid, date:r.date, head:r.head, item:r.item, descr:r.descr, payee:r.payee, qty:r.qty, rate:r.rate, amount:r.amount, mode:r.mode, holder:r.holder || null, bill:r.bill, notes:r.notes, source:'excel', batch:b, by:S.session, at:now}));
+    log(U.pid, 'cost', `Imported ${rows.length} cost lines from Excel · ${inr(rows.reduce((t, r) => t + r.amount, 0))}`); U.modal = null; U.cdate = rows[0].date; done(`${rows.length} lines imported`); },
   'unlock-decide': el => { U.modal = {type:'unlockdecide', id:el.dataset.id, yes:!!el.dataset.yes}; renderLayer(); },
   pay: el => { U.modal = {type:'pay', id:el.dataset.id}; renderLayer(); },
   reject: el => { U.modal = {type:'reject', id:el.dataset.id}; renderLayer(); },
@@ -1615,13 +1876,23 @@ const FORMS = {
     const t = items.reduce((a, d) => a + d.amount, 0); if (t > base) return err('dd-err', `Deductions can’t be more than the amount payable (${inr(base)}).`);
     Object.assign(i, {deductions:items, deduction:t, remarks:rem, payable:base - t});
     log(U.pid, 'invoice', `Updated ${i.no} (${user(i.by).name}): deductions ${inr(t)}${rem ? `, remark “${rem}”` : ''}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} saved · pays ${inr(base - t)}`); },
-  unlockask: () => { const d = S.days.find(x => x.id === U.modal.id), why = val('ul-why'); if (why.length < 4) return err('ul-err', 'Say what needs changing and why.');
-    (S.unlocks ||= []).push({id:uid('q'), pid:d.pid, dayId:d.id, by:S.session, reason:why, at:Date.now(), status:'pending'}); log(U.pid, 'schedule', `Asked to change locked day ${fmtD(d.date)}: ${why}`);
+  unlockask: () => { const ds = U.modal.date, why = val('ul-why'); if (why.length < 4) return err('ul-err', 'Say what needs changing and why.');
+    if (datePending(U.pid, ds)) return err('ul-err', 'Permission for this day has already been asked for.');
+    (S.unlocks ||= []).push({id:uid('q'), pid:U.pid, dayId:U.modal.id, date:ds, by:S.session, reason:why, at:Date.now(), status:'pending'}); log(U.pid, 'schedule', `Asked to change locked day ${fmtD(ds)}: ${why}`);
     U.modal = null; done('Request sent to the Commercial Head and Commercial Managers'); },
   unlockdecide: () => { const q = S.unlocks.find(x => x.id === U.modal.id), note = val('ud-note');
     if (!U.modal.yes && note.length < 4) return err('ud-err', 'Say why, so the person who asked knows.');
     Object.assign(q, U.modal.yes ? {status:'approved', decidedBy:S.session, decidedAt:Date.now(), expiresAt:Date.now() + 864e5, note} : {status:'declined', decidedBy:S.session, decidedAt:Date.now(), note});
     log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
+  costadd: () => { const c = costForm(); if (!c) return;
+    (S.costs ||= []).push({id:uid('c'), pid:U.pid, ...c, source:'manual', batch:null, by:S.session, at:Date.now()}); U.chead = c.head; U.cmode = c.mode;
+    log(U.pid, 'cost', `Added a cost line on ${fmtD(c.date)}: ${c.head}${c.payee ? ' · ' + c.payee : ''} ${inr(c.amount)}`); done(`${inr(c.amount)} added to ${c.head}`); },
+  float: () => { const a = Math.round(+val('fl-amt')), who = val('fl-who'); if (!a) return err('fl-err', 'Enter an amount (negative if cash came back).');
+    (S.floats ||= []).push({id:uid('pf'), pid:U.pid, holder:who, amount:a, date:today(), note:val('fl-note'), by:S.session, at:Date.now()});
+    log(U.pid, 'cost', a > 0 ? `Gave ${inr(a)} petty cash to ${user(who).name}` : `Took back ${inr(-a)} petty cash from ${user(who).name}`); U.modal = null; done('Petty cash recorded'); },
+  dpr: () => { const d = S.days.find(x => x.id === U.drawer.id), v = dprValues(); if (!v.call || !v.wrap) return err('dp-err', 'Enter the actual call and wrap times.');
+    d.dpr = {...v, by:S.session, at:Date.now()}; if (d.status === 'planned') d.status = 'shot'; U.dprEdit = false; const sh = shiftOf(v);
+    log(U.pid, 'schedule', `Filed the daily report for ${fmtD(d.date)}${v.shot != null ? `: ${v.shot}/${v.planned ?? '?'} scenes` : ''}${sh?.ot ? ` · ${hm(sh.ot)} overtime` : ''}`); done('Daily report filed'); },
   task: () => { const kind = document.querySelector('input[name=tk-kind]:checked')?.value || 'task', title = val('tk-title'), who = [...document.querySelectorAll('input[name=tk-who]:checked')].map(x => x.value);
     if (title.length < 3) return err('tk-err', 'Give the task a title.');
     const f = {title, kind, details:val('tk-details'), priority:val('tk-prio'), due:val('tk-due'), dept:myRole() === 'hod' ? memberIn(U.pid, S.session).dept : val('tk-dept'), dayId:val('tk-day') || null};
@@ -1721,6 +1992,7 @@ document.addEventListener('input', e => {
   if ((e.target.id === 'rv-from' || e.target.id === 'rv-to') && !U.qtyTouched){ const m = memberIn(U.pid, S.session); if (m?.unit === 'day') $('#rv-qty').value = attIn(U.pid, S.session, val('rv-from'), val('rv-to')) || 1; }
   if (e.target.closest('[data-input="calc"]')) calcInv();
   if (e.target.closest('[data-input="adjcalc"]')) adjCalc();
+  if (['ca-qty','ca-rate'].includes(e.target.id)){ const q = +val('ca-qty') || 1, rt = +val('ca-rate'), a = $('#ca-amt'); if (a) a.placeholder = rt ? String(Math.round(q * rt)) : 'qty × rate'; }
 });
 document.addEventListener('change', async e => {
   const t = e.target;
@@ -1729,6 +2001,10 @@ document.addEventListener('change', async e => {
   if (t.dataset.change === 'month'){ U.month = t.value; return render(); }
   if (t.dataset.change === 'rmonth'){ U.rmonth = t.value; return render(); }
   if (t.dataset.change === 'fmonth'){ U.fmonth = t.value; return render(); }
+  if (t.dataset.change === 'cdate'){ if (t.value) { U.cdate = t.value; render(); } return; }
+  if (t.dataset.change === 'ca-mode'){ U.cmode = t.value; $('#ca-holder-f')?.classList.toggle('hidden', t.value !== 'petty'); return; }
+  if (t.dataset.change === 'cost-file'){ const f = t.files?.[0]; t.value = ''; if (!f) return;
+    try { U.modal = {type:'costimport', ...(await readCostFile(f))}; renderLayer(); } catch (x) { toast(x.message || 'That file couldn’t be read. Save it as .xlsx and try again.'); } return; }
   if (t.dataset.change === 'sel'){ U.sel = t.checked ? [...new Set([...U.sel, t.value])] : U.sel.filter(x => x !== t.value); return render(); }
   if (t.dataset.change === 'selall'){ U.sel = t.checked ? S.invoices.filter(i => i.pid === U.pid && i.status === 'approved').map(i => i.id) : []; return render(); }
   if (t.dataset.change === 'ob-dept'){ obDept(t.value); return; }
