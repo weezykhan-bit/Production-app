@@ -5,7 +5,9 @@
 //   office → help/crewdesk-office.mp4  laptop, for the CFO, Commercial Head, Line Producer and Accounts
 // Usage: PGLITE=<path to @electric-sql/pglite dist/index.js> node tools/record-guide.mjs crew|office   (needs ffmpeg)
 import fs from 'fs'; import path from 'path'; import { execFileSync } from 'child_process';
-import { chromium, pg, server, FAKE, ROOT } from '../tests/harness.mjs';
+import { chromium, db, pg, server, FAKE, ROOT } from '../tests/harness.mjs';
+// the owner on these recordings is the CFO: with no Auditor, HOP or Commercial Manager on the show, they cover each step and pay
+await db.exec("update company_admins set role = 'cfo'");
 
 const MODE = process.argv[2] === 'office' ? 'office' : 'crew';
 const OUT = path.join(ROOT, 'help'), TMP = fs.mkdtempSync('/tmp/crewdesk-guide-'), URL = 'http://localhost:5188/';
@@ -143,7 +145,7 @@ async function crewSign(p, k){
 async function crewInvoice(p, k){
   if (k){ await k.tap('.rail [data-id=invoices]'); await wait(600); await k.tap('[data-act=raise]'); await wait(400); }
   else { await p.evaluate(() => reload().then(render)); await p.click('.rail [data-id=invoices]'); await p.click('[data-act=raise]'); }
-  await p.evaluate(([f, t]) => { for (const [id, v] of [['rv-from', f], ['rv-to', t]]){ const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', {bubbles:true})); } }, [isoDay(-6), isoDay(-1)]);
+  await p.evaluate(([f, t]) => { for (const [id, v] of [['rv-from', f], ['rv-to', t]]){ const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', {bubbles:true})); } }, [isoDay(-6), isoDay(0)]);
   if (k){ await wait(900); await k.type('#rv-no', 'KR-001'); await k.show('#rv-calc'); await wait(2200); await k.tap('form[data-form=raise] button[type=submit]'); }
   else { await p.fill('#rv-no', 'KR-001'); await p.click('form[data-form=raise] button[type=submit]'); }
   await p.waitForFunction(() => S.invoices.some(i => i.no === 'KR-001'), null, {timeout:8000});
@@ -186,12 +188,12 @@ if (MODE === 'crew'){
   await office('await ACT.countersign({dataset:{id:m.id}});');
   await p.waitForFunction(() => memberIn(U.pid, S.session)?.ag?.status === 'countersigned', null, {timeout:15000}); await p.evaluate(() => scrollTo({top:0, behavior:'smooth'})); await wait(1200);
   await k.cap(7, 'This is your Crew ID', 'Show the code at the gate on every shoot day. Your check-ins fill your invoice.'); await k.show('.idcard'); await wait(3800);
-  await office("for (const d of S.days.filter(d => d.pid === m.pid && d.date < today()).slice(-4)) await call('check_in', {p_day:d.id, p_code:m.code});");
+  await office("for (const d of S.days.filter(d => d.pid === m.pid && d.date <= today() && d.date >= isoD(dayOff(-1)))) await call('check_in', {p_day:d.id, p_code:m.code});");
   await p.evaluate(() => reload().then(render)); await wait(800);
   await k.cap(8, 'To get paid, raise an invoice in My invoices', 'Pick the dates. Your days come in from the gate, so there’s nothing to count.'); await wait(1500);
   await crewInvoice(p, k); await wait(1300);
-  await k.cap(9, 'The bell tells you when it’s checked, approved and paid', 'With the bank reference, so you can match it in your account.'); await wait(1200);
-  await office("const i = S.invoices.find(x => x.no === 'KR-001'); await call('hod_approve', {p_id:i.id}); await call('final_approve', {p_id:i.id}); await call('pay_invoices', {p_production:i.pid, p_ids:[i.id], p_ref:'SBINR52026110310'});");
+  await k.cap(9, 'My invoices and the bell show every step', 'Audited, confirmed by the Head of Production, approved, then paid with the bank reference.'); await wait(1200);
+  await office("const i = S.invoices.find(x => x.no === 'KR-001'); for (const d of S.days.filter(d => d.pid === i.pid && d.att.includes(i.by) && !d.confirmedAt)) await call('confirm_attendance', {p_day:d.id}); for (let n = 0; n < 3; n++) await call('advance_invoice', {p_id:i.id}); await call('pay_invoices', {p_production:i.pid, p_ids:[i.id], p_ref:'SBINR52026110310'});");
   await p.waitForFunction(() => S.invoices.some(i => i.no === 'KR-001' && i.status === 'paid'), null, {timeout:15000}); await wait(800);
   await k.tap('.bell'); if (!(await p.$('.notes'))) await p.evaluate(() => { U.notesOpen = true; render(); }); await wait(3800);
   await p.evaluate(() => { U.notesOpen = false; render(); });
@@ -204,7 +206,7 @@ if (MODE === 'crew'){
   // ---------------------------------------------------------------- the CFO's laptop, on camera
   const [cam, p] = await browser({viewport:{width:1280, height:800}, recordVideo:{dir:TMP, size:{width:1280, height:800}}}, {email:'fowzan@swastikstories.com', name:'Fowzan'});
   await p.addInitScript(OVERLAY, false);
-  const k = kit(p, 10);
+  const k = kit(p, 11);
   await p.goto(URL); await p.waitForSelector('.gbtn');
   await k.card('CrewDesk for the production office', 'From invite to payment, in about 3 minutes', null, 'FOR CFO · COMMERCIAL HEAD · LINE PRODUCER · ACCOUNTS'); await wait(3600); await k.card();
   await k.cap(1, 'Sign in with your Google account', 'Your role decides what you see: owners, Line Producers, HODs and Accounts each get their own view.'); await wait(2600);
@@ -239,7 +241,7 @@ if (MODE === 'crew'){
   await p.fill('#pl-from', isoDay(-6)); await p.fill('#pl-to', isoDay(6)); await p.uncheck('#pl-sun'); await p.fill('#pl-ep', '301'); await wait(1200);
   await k.tap('form[data-form=plan] button[type=submit]'); await wait(1600);
   const crewCode = await p.evaluate(`${kavya}.code`);
-  for (const [i, id] of (await p.evaluate(() => S.days.filter(d => d.date < today()).slice(-4).map(d => d.id))).entries()){
+  for (const [i, id] of (await p.evaluate(() => S.days.filter(d => d.date <= today() && d.date >= isoD(dayOff(-1))).map(d => d.id))).entries()){
     await p.evaluate(id => { U.drawer = {type:'day', id}; renderLayer(); }, id); await wait(i ? 250 : 900);
     if (i) await p.fill('#ci-code', crewCode); else await k.type('#ci-code', crewCode, 70);
     await (i ? p.click('form[data-form=checkin] button[type=submit]') : k.tap('form[data-form=checkin] button[type=submit]')); await wait(i ? 350 : 1400);
@@ -247,8 +249,14 @@ if (MODE === 'crew'){
   await p.evaluate(() => { U.drawer = null; renderLayer(); });
   await crewInvoice(c);
   await p.evaluate(() => reload().then(render)); await k.tap('.rail [data-id=invoices]'); await wait(600);
-  await k.cap(8, 'Approve invoices: HOD check, then final approval', 'Days are checked against gate check-ins. Nobody can approve their own invoice.'); await wait(2600);
-  await k.tap('main [data-act=hod-ok]'); await wait(1000); await k.tap('main [data-act=final-ok]'); await wait(1000);
+  await k.cap(8, 'The Auditor confirms attendance, and the day locks', 'After that, changing it needs the Commercial Head’s permission.'); await k.tap('.rail [data-id=schedule]'); await wait(500);
+  await p.evaluate(() => { const d = S.days.find(x => x.att.length && !x.confirmedAt); U.drawer = {type:'day', id:d.id}; renderLayer(); }); await wait(1200);
+  await k.tap('.drawer [data-act=att-confirm]'); await wait(2600); await p.evaluate(() => { U.drawer = null; renderLayer(); });
+  await p.evaluate(async () => { for (const d of S.days.filter(x => x.att.length && !x.confirmedAt)) await call('confirm_attendance', {p_day:d.id}); await reload(); render(); });   // the other day, off camera
+  await k.tap('.rail [data-id=invoices]'); await wait(600);
+  await k.cap(8, 'Invoices go Auditor → Head of Production → Commercial Head → paid', 'Each person is told when it’s their turn. On this show the CFO covers every step.'); await wait(2400);
+  for (let n = 0; n < 3; n++){ await k.tap('main [data-act=inv-step]'); await wait(900); }
+  await k.tap('main tbody tr'); await wait(2600); await p.evaluate(() => { U.drawer = null; renderLayer(); });
   await k.cap(8, 'Take off an advance or a loss before paying', 'Every deduction has a reason the person sees. TDS stays on the full fee.'); await k.tap('main [data-act=adjust]');
   await p.selectOption('#dd-t0', 'advance'); await k.type('#dd-a0', '2000', 60); await k.type('#dd-n0', 'Advance paid on day 1', 25); await wait(1400);
   await k.tap('form[data-form=adjust] button[type=submit]'); await wait(1300);
@@ -257,14 +265,20 @@ if (MODE === 'crew'){
   await k.tap('input[data-change=selall]'); await wait(400); await k.tap('[data-act=payrun]'); await k.type('#md-v', 'HDFCBATCH0412', 40); await wait(500);
   await k.tap('form[data-form=payrun] button[type=submit]'); await wait(1200);
   await k.tap('[data-act=ftab][data-id=tally]'); await wait(900); await k.tap('[data-act=tally-preview]'); await wait(2600); await p.evaluate(() => { U.modal = null; renderLayer(); });
+  await k.tap('.rail [data-id=tasks]'); await wait(600);
+  await k.cap(10, 'Assign tasks and track issues, like a production board', 'Board, table and calendar. People are told when they’re assigned; issues collect solutions.'); await k.tap('[data-act=new-task]');
+  await k.type('#tk-title', 'Book the crane for the wedding song', 35); await p.selectOption('#tk-prio', 'high'); await p.fill('#tk-due', isoDay(1));
+  await p.check(`input[name=tk-who][value="${await p.evaluate(`${kavya}.userId`)}"]`); await wait(900);
+  await k.tap('form[data-form=task] button[type=submit]'); await wait(2400); await p.evaluate(() => { U.drawer = null; renderLayer(); }); await wait(600);
+  await k.tap('[data-act=tv][data-id=calendar]'); await wait(2200);
   await k.tap('.rail [data-id=reports]'); await wait(600);
-  await k.cap(10, 'Reports and Excel, any day of the month', 'Cost by department, shoot days, budget used, payments, and separate lists of artists, crew and vendors.'); await wait(1200);
+  await k.cap(11, 'Reports and Excel, any day of the month', 'Cost by department, shoot days, budget used, payments, and separate lists of artists, crew and vendors.'); await wait(1200);
   await p.evaluate(() => scrollTo({top:520, behavior:'smooth'})); await wait(2600); await p.evaluate(() => scrollTo({top:0, behavior:'smooth'})); await wait(900);
   await k.tap('.rail [data-id=agreements]'); await wait(500);
-  await k.cap(10, 'Agreements and the activity log keep everyone honest', 'Filter by artist, crew or vendor and by status. Every change is logged and can be undone.'); await wait(3000);
+  await k.cap(11, 'Agreements and the activity log keep everyone honest', 'Filter by artist, crew or vendor and by status. Every change is logged and can be undone.'); await wait(3000);
   await k.tap('.rail [data-id=activity]'); await wait(2600);
   await k.cap(0, 'Stuck? Tap Guide, or open the help page from your name menu', ''); await wait(2200);
-  await k.card('That’s a show, start to finish', 'Invite → agreement → schedule → invoice → payment → Tally', ['Each show has its own code', 'Everyone sees only what their role allows', 'Every change is on record'], 'CREWDESK-PRODUCTION.VERCEL.APP/HELP'); await wait(3600);
+  await k.card('That’s a show, start to finish', 'Invite → agreement → schedule → invoice → payment → Tally', ['Each show has its own code', 'One approval chain, everyone notified', 'Every change is on record'], 'CREWDESK-PRODUCTION.VERCEL.APP/HELP'); await wait(3600);
   await finish(p, cam, 'crewdesk-office', 1280);
 }
 await b.close(); server.close(); process.exit(0);

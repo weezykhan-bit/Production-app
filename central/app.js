@@ -475,11 +475,11 @@ function rail(){
 
 function projectsView(){
   const u = me(), mine = S.members.filter(m => m.userId === u.id).map(m => ({m, p:proj(m.pid)}));
-  if (!S.company && can.company(u)) return `<div class="head"><div class="t"><p class="eyebrow">Step 1 of 2 · one-time setup</p><h1>Your company details</h1>
+  if (!S.company && can.company(u)) return `<div class="head"><div class="t"><h1>Your company details</h1><p class="meta">One-time setup · step 1 of 2</p>
     <p class="muted" style="max-width:62ch">Entered once by the CFO or Commercial Head. Every production, agreement, invoice and Tally export uses them, so nobody types them again.</p></div></div>
     <section class="panel">${companyForm()}</section>`;
   const newbie = !mine.length && !can.createProject(u);
-  return `<div class="head"><div class="t"><p class="eyebrow">${newbie ? 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '') : 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0])}</p><h1>${newbie ? 'Let’s get you on set' : 'Your productions'}</h1></div>
+  return `<div class="head"><div class="t"><h1>${newbie ? 'Let’s get you on set' : 'Your productions'}</h1><p class="meta">${newbie ? 'Welcome' + (u.name ? ', ' + esc(u.name.split(' ')[0]) : '') : 'Signed in as ' + esc(isStaff(u.title) ? ROLES[u.title]?.label : (u.name || '').split(' ')[0])}</p</h1></div>
     <div class="row">${can.createProject(u) ? `<button class="btn primary" data-act="new-project" ${S.company ? '' : 'disabled'}>${icon('plus')}New production</button>` : ''}</div></div>
   ${!S.company ? '<p class="banner">The company details aren’t set up yet. The CFO or Commercial Head does this once, before the first production.</p>' : ''}
   ${mine.length ? `<div class="projects">${mine.map(({m, p}) => {
@@ -504,7 +504,7 @@ function projectsView(){
 function projHead(title, sub = ''){
   const p = proj(U.pid);
   const slate = isStaff(myRole()) ? `<div class="slate" aria-label="Production status"><span><b>FORMAT</b>${esc(p.format.replace('Long-format fiction', 'LFF'))}</span><span><b>EP</b>${projDone(p)}/${p.planned}</span><span><b>NEXT</b>${esc(projBlock(p))}</span></div>` : '';
-  return `<div class="head"><div class="t"><p class="eyebrow">${esc(p.name)}</p><h1>${title}</h1>${sub}</div>${slate}</div>`;
+  return `<div class="head"><div class="t"><h1>${title}</h1>${sub}</div>${slate}</div>`;
 }
 const HELP_URL = '/help/';
 const helpLink = (t = 'Watch the 2-minute setup video') => `<a class="helplink" href="${HELP_URL}" target="_blank" rel="noopener">${icon('play', 16)}${t}</a>`;
@@ -848,7 +848,7 @@ function dayDrawer(d){
   const r = myRole(), p = proj(d.pid), [l, c] = DAY[d.status], edit = (can.schedule(r) || r === 'commercial_mgr') && dayEditable(d, r);
   const present = d.att.map(u => memberIn(d.pid, u)).filter(Boolean), dayRate = present.filter(m => m.unit === 'day' && m.rate);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
-  <div class="stack" style="gap:4px"><p class="eyebrow">${esc(p.name)} · shoot day</p><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
+  <div class="stack" style="gap:4px"><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="meta">Shoot day · ${esc(p.name)}</p><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
   ${isStaff(r) ? lockPanel(d) : ''}
   <section class="panel"><dl class="dl"><dt>Call time</dt><dd class="mono">${d.call}</dd><dt>Expected wrap</dt><dd class="mono">${d.wrap}</dd><dt>Location</dt><dd>${esc(d.location)}</dd>${d.note ? `<dt>Note</dt><dd>${esc(d.note)}</dd>` : ''}
     ${isStaff(r) && d.status === 'shot' ? `<dt>Day-rate cost</dt><dd class="num">${inr(dayRate.reduce((s, m) => s + m.rate, 0))} <span class="muted small">for ${dayRate.length} people checked in</span></dd>` : ''}</dl></section>
@@ -911,7 +911,7 @@ function taskDrawer(t){
   const r = myRole(), touch = taskTouch(t), head = can.taskHead(r) || t.by === S.session, sd = t.dayId && S.days.find(d => d.id === t.dayId);
   const feed = [...t.updates].sort((a, b) => b.at - a.at);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="row" style="gap:6px">${t.kind === 'issue' ? '<span class="tag-issue">Issue</span>' : ''}<span class="prio ${PRIO[t.priority][1]}">${PRIO[t.priority][0]}</span></span></div>
-  <div class="stack" style="gap:6px"><p class="eyebrow">${esc(proj(t.pid).name)}${t.dept ? ' · ' + esc(t.dept) : ''}</p><h2>${esc(t.title)}</h2></div>
+  <div class="stack" style="gap:6px"><h2>${esc(t.title)}</h2><p class="meta">${t.kind === 'issue' ? 'Issue' : 'Task'} · ${esc(proj(t.pid).name)}${t.dept ? ' · ' + esc(t.dept) : ''}</p></div>
   <div class="stpick" role="group" aria-label="Status">${Object.entries(TASK_ST).map(([k, [l, c]]) => `<button class="${c}" data-act="task-st" data-id="${t.id}" data-s="${k}" aria-pressed="${t.status === k}" ${touch ? '' : 'disabled'}>${l}</button>`).join('')}</div>
   <section class="panel"><dl class="dl"><dt>Assigned</dt><dd>${t.assignees.map(u => `<span class="who">${av(user(u), 22)}${esc(user(u)?.name || '')}</span>`).join('') || '<span class="muted">Nobody yet</span>'}</dd>
     <dt>Due</dt><dd>${t.due ? fmtD(t.due) + (t.status !== 'done' && t.due < today() ? ' <span class="chip bad">Overdue</span>' : '') : '—'}</dd>${sd ? `<dt>Shoot day</dt><dd><button class="linkbtn" style="margin:0" data-act="open-day" data-id="${sd.id}">${fmtD(sd.date)} · call ${esc(sd.call)}</button></dd>` : ''}
@@ -1045,7 +1045,7 @@ ${line(t.bankLedger || 'Bank Account', i.payable, false)}
 const CO_LABEL = {legal:'legal name', brand:'trade name', type:'entity type', pan:'PAN', tan:'TAN', gstin:'GSTIN', state:'state', cin:'CIN', address:'address', signatory:'signatory', designation:'designation', email:'email', phone:'phone', bank:'bank account', tally:'Tally settings'};
 function companyView(){
   const c = S.company, edit = can.company(me());
-  const head = `<div class="head"><div class="t"><p class="eyebrow">Set once · used on every production</p><h1>Company details</h1><p class="muted" style="max-width:64ch">Agreements, the “bill to” on invoices, the TDS and GST registers and the Tally files all read from here.</p></div></div>`;
+  const head = `<div class="head"><div class="t"><h1>Company details</h1><p class="meta">Set once · used on every production</p><p class="muted" style="max-width:64ch">Agreements, the “bill to” on invoices, the TDS and GST registers and the Tally files all read from here.</p></div></div>`;
   if (!c) return head + (edit ? `<section class="panel">${companyForm()}</section>` : '<div class="empty">Not set up yet. The CFO or Commercial Head does this once.</div>');
   if (edit && U.coEdit) return head + `<section class="panel">${companyForm(c)}</section>`;
   const st = STATES.find(([k]) => k === c.state)?.[1] || c.state, full = can.seeKyc(U.pid ? myRole() : me().title) || edit;
@@ -1160,7 +1160,7 @@ function invoiceDrawer(i){
   if (!i) return '';
   const u = user(i.by), [l, c] = INV[i.status], acts = invActions(i), m = member(i.memberId);
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
-  <div class="stack" style="gap:4px"><p class="eyebrow">Invoice</p><h2 class="mono">${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
+  <div class="stack" style="gap:4px"><h2 class="mono">Invoice ${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
   <section class="panel">${chainBar(i)}</section>
   <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}${i.remarks ? `<dt>Remarks</dt><dd>${esc(i.remarks)}</dd>` : ''}</dl>
     <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span>${(i.deductions || []).map(d => `<span>${esc(d.label)} · ${esc(d.note)}</span><span class="num">−${inr(d.amount)}</span>`).join('')}<span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>

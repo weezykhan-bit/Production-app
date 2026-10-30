@@ -1,17 +1,17 @@
 [
  {
   "n": 1,
-  "t": 3,
+  "t": 3.1,
   "title": "Open the CrewDesk link your Line Producer sent you"
  },
  {
   "n": 2,
-  "t": 10.1,
+  "t": 10.2,
   "title": "Enter the production code and your mobile number"
  },
  {
   "n": 3,
-  "t": 17.2,
+  "t": 17.3,
   "title": "You’re in. This page shows what’s left to do"
  },
  {
@@ -26,22 +26,22 @@
  },
  {
   "n": 6,
-  "t": 55.4,
+  "t": 49.6,
   "title": "Read your agreement, type your name and sign with your finger"
  },
  {
   "n": 7,
-  "t": 69.4,
+  "t": 63.7,
   "title": "This is your Crew ID"
  },
  {
   "n": 8,
-  "t": 75,
+  "t": 69.1,
   "title": "To get paid, raise an invoice in My invoices"
  },
  {
   "n": 9,
-  "t": 88.7,
-  "title": "The bell tells you when it’s checked, approved and paid"
+  "t": 83.2,
+  "title": "My invoices and the bell show every step"
  }
 ]

@@ -1,22 +1,22 @@
 [
  {
   "n": 1,
-  "t": 3.4,
+  "t": 3.3,
   "title": "Sign in with your Google account"
  },
  {
   "n": 2,
-  "t": 8.3,
+  "t": 8.2,
   "title": "Once, at the start: your company details"
  },
  {
   "n": 3,
-  "t": 15.8,
+  "t": 15.6,
   "title": "Create a production"
  },
  {
   "n": 4,
-  "t": 26,
+  "t": 25.8,
   "title": "Onboard someone: set the deal once"
  },
  {
@@ -26,27 +26,32 @@
  },
  {
   "n": 6,
-  "t": 54.6,
+  "t": 54.8,
   "title": "Home shows what’s waiting on you"
  },
  {
   "n": 7,
-  "t": 64.9,
+  "t": 65.2,
   "title": "Plan shoot days, then check people in at the gate"
  },
  {
   "n": 8,
-  "t": 81.9,
-  "title": "Approve invoices: HOD check, then final approval"
+  "t": 81.2,
+  "title": "The Auditor confirms attendance, and the day locks"
  },
  {
   "n": 9,
-  "t": 100.9,
+  "t": 117.2,
   "title": "Pay in one run, then send it to Tally"
  },
  {
   "n": 10,
-  "t": 119.7,
+  "t": 135.8,
+  "title": "Assign tasks and track issues, like a production board"
+ },
+ {
+  "n": 11,
+  "t": 151.5,
   "title": "Reports and Excel, any day of the month"
  }
 ]

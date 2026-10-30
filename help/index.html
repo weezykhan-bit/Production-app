@@ -33,7 +33,7 @@ header .wrap{display:flex;align-items:center;justify-content:space-between;gap:1
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:10px;padding:10px 16px;font:600 15px var(--f-body);text-decoration:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 h1,h2,h3{font-family:var(--f-display);line-height:1.12;margin:0;letter-spacing:-.01em}
-h2{font-size:clamp(22px,3vw,28px)} h3{font-size:17px}
+h2{font-size:clamp(24px,3.2vw,30px)} h3{font-size:19px}
 .eyebrow{font:500 12px var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
 
 .hero{background:radial-gradient(110% 90% at 15% 0%,#0d6f69 0%,#0a605b 42%,#073f3c 100%);color:#fff}
@@ -53,7 +53,7 @@ h2{font-size:clamp(22px,3vw,28px)} h3{font-size:17px}
 .frame.port video{aspect-ratio:390/844;border-radius:22px}
 .frame.land video{aspect-ratio:16/10}
 .side{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow);display:grid;gap:12px}
-.side h2{font-size:18px}
+.side h2{font-size:21px}
 .chapters{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .chapters button{width:100%;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;border:0;background:none;padding:8px 8px;border-radius:9px;cursor:pointer;color:inherit;font:inherit}
 .chapters button:hover{background:var(--surface-2)}
@@ -138,18 +138,19 @@ footer{padding:28px 0 calc(40px + env(safe-area-inset-bottom,0px));color:var(--m
       <li><b>Onboard people</b><span>Set the deal and send the invite on WhatsApp. They fill their own bank, PAN and Aadhaar.</span></li>
       <li><b>Agreements</b><span>Send with one tap when someone is ready. Owners approve after they sign.</span></li>
       <li><b>Schedule and gate</b><span>Plan shoot days and check people in with their Crew ID. That’s their attendance.</span></li>
-      <li><b>Invoices to Tally</b><span>HOD check, final approval, deductions, one payment run, then the Tally files.</span></li>
+      <li><b>Invoices to Tally</b><span>The Auditor confirms attendance and audits, the Head of Production confirms, the Commercial Head approves, the CFO or Accounts pays in one run, then the Tally files.</span></li>
+      <li><b>Tasks and issues</b><span>Heads assign production tasks with a due date and shoot day; issues collect solutions until one is accepted.</span></li>
     </ol>
   </section>
 
   <section aria-labelledby="roles">
     <h2 id="roles">Who does what</h2>
     <div class="cols">
-      <div class="card"><h3><i>★</i>CFO and Commercial Head</h3><ul><li>Company details and new productions</li><li><b>Approve</b> signed agreements and invoices</li><li>Change deals (every change can be undone)</li><li>Deductions, removals and reports</li></ul></div>
-      <div class="card"><h3><i>◆</i>Line Producer and Head of Production</h3><ul><li><b>Onboard</b> people and send agreements</li><li>Plan shoot days and check people in</li><li>HOD check on invoices</li><li>Ask the owners to remove someone</li></ul></div>
+      <div class="card"><h3><i>★</i>CFO and Commercial Head</h3><ul><li>Company details and new productions</li><li><b>Approve</b> signed agreements</li><li>Commercial Head: <b>approves invoices</b> for payment and allows changes to locked days</li><li>CFO: <b>pays</b>, with Accounts</li></ul></div>
+      <div class="card"><h3><i>◎</i>Auditor and Commercial Manager</h3><ul><li>Auditor: <b>confirms attendance</b> each day and audits invoices against it</li><li>Commercial Manager: approves invoices and locked-day changes for the Commercial Head</li></ul></div>
+      <div class="card"><h3><i>◆</i>Head of Production and Line Producer</h3><ul><li>Head of Production: <b>confirms invoices</b> after the audit</li><li>Onboard people, send agreements, plan shoot days and check people in</li><li>Assign tasks; ask permission to change a locked day</li></ul></div>
       <div class="card"><h3><i>₹</i>Accounts</h3><ul><li><b>Pay</b> approved invoices in one bank run</li><li>Deductions and remarks before payment</li><li>TDS and GST registers, Tally files</li></ul></div>
-      <div class="card"><h3><i>●</i>Crew, artists and vendors</h3><ul><li>Fill their own details and sign</li><li>Crew ID at the gate every shoot day</li><li>Raise invoices and follow them on the bell</li></ul></div>
-    </div>
+      <div class="card"><h3><i>●</i>Crew, artists and vendors</h3><ul><li>Fill their own details and sign</li><li>Crew ID at the gate every shoot day</li><li>Raise invoices and follow every step on the bell</li><li>Update the tasks they’re on</li></ul></div>
   </section>
 
   <section aria-labelledby="faq">
@@ -158,7 +159,7 @@ footer{padding:28px 0 calc(40px + env(safe-area-inset-bottom,0px));color:var(--m
     <details><summary>It says the production code is wrong</summary><p>Every show has its own code, like SATH-7Q4K. Check it with your Line Producer. After 10 wrong tries, joining is paused for an hour.</p></details>
     <details><summary>My deal, rate or name isn’t showing</summary><p>Use the same mobile number or Gmail your Line Producer used for your invite. If it still doesn’t show, ask them to check your invite.</p></details>
     <details><summary>Where is my agreement?</summary><p>It arrives after your profile and documents are complete. You’ll get a notification on the bell, and it appears under <b>My setup → Agreement</b>.</p></details>
-    <details><summary>Where is my invoice right now?</summary><p>Open <b>My invoices</b>: each one shows its stage (waiting for HOD, waiting for the CFO or Commercial Head, approved, paid). The bell tells you each time it moves.</p></details>
+    <details><summary>Where is my invoice right now?</summary><p>Open <b>My invoices</b>: each one shows its stage (with the Auditor, the Head of Production, the Commercial Head, approved, paid). The bell tells you each time it moves.</p></details>
     <details><summary>Who can see my PAN, Aadhaar and bank details?</summary><p>Only you, the CFO, the Commercial Head and Accounts on your production. Every change is logged.</p></details>
   </section>
 

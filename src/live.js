@@ -354,12 +354,12 @@ modalBody = function(){
   if (M.type === 'welcome'){
     const u = me(), office = isOwner(u.title) || S.members.some(m => m.userId === S.session && isStaff(m.role)), first = (u.name || '').split(' ')[0];
     const steps = office
-      ? [['Set up once', 'Company details, then a production. Each show gets its own joining code.'], ['Onboard people', 'Set the deal and send the invite on WhatsApp. They fill their own details.'], ['Agreements and the schedule', 'Send agreements, approve them, plan shoot days and check people in.'], ['Invoices to Tally', 'Approve invoices, add deductions, pay in one run and send to Tally.']]
+      ? [['Set up once', 'Company details, then a production. Each show gets its own joining code.'], ['Onboard people', 'Set the deal and send the invite on WhatsApp. They fill their own details.'], ['Agreements and the schedule', 'Send agreements, approve them, plan shoot days and check people in.'], ['One approval chain', 'Auditor → Head of Production → Commercial Head → paid; each person is told in turn. Assign tasks to the team.']]
       : [['Join your show', 'Enter the production code and your mobile number.'], ['Fill your details', 'Photo, PAN, bank account, then Aadhaar and PAN card photos.'], ['Sign your agreement', 'You get a notification when it’s ready.'], ['Get paid', 'Show your Crew ID at the gate, then raise your invoice in a few taps.']];
     return `<div class="welcome ${office ? 'land' : 'port'}">
       <div class="w-video"><video src="/help/${office ? 'crewdesk-office' : 'crewdesk-setup'}.mp4" poster="/help/${office ? 'crewdesk-office' : 'crewdesk-setup'}.jpg" controls playsinline preload="metadata" aria-label="Welcome video"></video></div>
       <div class="w-text"><button class="btn ghost sm w-x" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button>
-        <p class="eyebrow">Welcome to CrewDesk${first ? ', ' + esc(first) : ''}</p><h2>${office ? 'Run your production office in one place' : 'You’ll be set up in 2 minutes'}</h2>
+        <h2>${office ? 'Run your production office in one place' : 'You’ll be set up in 2 minutes'}</h2><p class="meta">Welcome to CrewDesk${first ? ', ' + esc(first) : ''}</p>
         <p class="muted">${office ? 'Watch how a show runs from invite to payment, then try it.' : 'Watch the short video, then follow the steps on your screen.'}</p>
         <ol class="w-steps">${steps.map(([t, d]) => `<li><b>${esc(t)}</b><span>${esc(d)}</span></li>`).join('')}</ol>
         <div class="row"><button class="btn primary" data-act="close-modal">Get started</button><a class="btn ghost" href="/help/" target="_blank" rel="noopener">Open the full guide</a></div>
