@@ -270,6 +270,13 @@ details.sec .body{padding:0 16px 16px;display:grid;gap:14px}
 .invcard{display:grid;gap:6px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;color:inherit;font:inherit;cursor:pointer;width:100%}
 .invcard .spread{gap:10px}
 @media (max-width:720px){ .inv-cards{display:grid} .inv-table{display:none} }
+.callcard{display:grid;gap:10px;text-align:left;width:100%;border:1px solid var(--accent);background:linear-gradient(135deg,var(--accent-soft),var(--surface) 70%);border-radius:14px;padding:16px 18px;color:inherit;font:inherit;cursor:pointer;margin-bottom:16px}
+.callcard .eyebrow{color:var(--accent);margin:0}
+.cc-main{display:flex;align-items:center;gap:16px}
+.cc-main>span{display:grid}
+.cc-time{font:700 34px/1 var(--f-display);color:var(--accent);font-variant-numeric:tabular-nums}
+.cc-meta{display:flex;flex-wrap:wrap;gap:6px}
+.cc-meta span{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px;color:var(--muted)}
 .btn.big{width:100%;justify-content:center;padding:13px 16px;font-size:15px}
 @media (max-width:720px){
   .fab{padding:0;width:52px;height:52px;justify-content:center}

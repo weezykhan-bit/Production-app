@@ -220,6 +220,14 @@ try {
   let arrived = null;
   for (let i = 0; i < 20 && !arrived; i++){ await q2.waitForTimeout(300); arrived = await q2.evaluate(j => S.notes[0]?.title === 'Your deal was updated' && memberIn(U.pid, S.session).joining === j ? S.notes.filter(n => !n.read).length : null, newJoin); }
   if (!arrived) errs.push('the deal change did not reach the crew member’s open screen'); else ok(`owner’s change reached the crew member live (now ${arrived} unread)`);
+  // the office changes tomorrow's call time; the crew member's phone hears about it, and the schedule shows the next call
+  await ev(() => { const d = S.days.filter(x => x.status === 'planned' && x.date >= today()).sort((a, b) => a.date.localeCompare(b.date))[0]; U.drawer = {type:'day', id:d.id}; renderLayer(); });
+  await click('.drawer [data-act=day-edit]'); await p.fill('#de-call', '06:15'); await p.fill('#de-note', 'Night exteriors, bring warm clothes'); await click('form[data-form=dayedit] button[type=submit]');
+  let moved = false; for (let i = 0; i < 20 && !moved; i++){ await q2.waitForTimeout(300); moved = await q2.evaluate(() => S.notes.some(n => /^Call time changed/.test(n.title) && /06:15 \(was/.test(n.body))); }
+  if (!moved) errs.push('call-time change did not reach the crew member: ' + await text('#de-err').catch(() => '')); else ok('call-time change reached the crew member live');
+  await q2.evaluate(() => { U.view = 'schedule'; render(); }); await q2.waitForTimeout(200);
+  if (!(await q2.textContent('.callcard') || '').includes('06:15')) errs.push('next-call card missing or stale'); else ok('next-call card shows the new call time');
+  await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
   await q2.click('.bell'); await q2.waitForTimeout(200);
   const items = await q2.$$eval('.notes li button', b => b.map(x => x.querySelector('b').textContent));
   if (!items.some(t => /Deduction on invoice IS-001/.test(t))) errs.push('crew not told about the deduction: ' + items.join(' | '));

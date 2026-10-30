@@ -571,6 +571,7 @@ function mySetupView(){
   <section class="panel stack"><div class="stepper">${STAGES.map(([k, l]) => `<div class="${s.d[k] ? 'on' : (s.next === k ? 'now' : '')}">${l}</div>`).join('')}</div>
     ${s.next ? `<p><b>Next:</b> ${esc(todos(U.pid, S.session)[0]?.t || '')}</p>${helpLink('Not sure how? Watch the 2-minute video')}` : ''}</section>
   ${!s.next ? `<div class="idcard"><span class="ph">${u.photo ? `<img src="${u.photo}" alt="">` : initials(u.name)}</span><span class="eyebrow" style="color:inherit;opacity:.8">${esc(proj(U.pid).name)} · Crew ID</span><b style="font:700 20px/1.1 var(--f-display)">${esc(u.name)}</b><span>${esc(m.job)} · ${esc(m.dept)}</span><span class="code">${esc(m.code)}</span><span class="small" style="opacity:.8">Show this code at the gate for check-in.</span></div>` : ''}
+  ${!s.next ? callCard(U.pid) : ''}
   ${sec('deal', 1, 'Your deal', s.d.deal, s.d.deal ? `<dl class="dl"><dt>Role</dt><dd>${esc(m.job)} · ${esc(m.dept)}</dd><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label)}</dd><dt>Payment</dt><dd>Within ${m.terms} days of approval</dd></dl><p class="small muted">Only the CFO or Commercial Head can change your deal. Every change is logged.</p>` : '<p class="muted">The production office is setting your rate and joining date. You’ll see it here.</p>', false)}
   ${sec('profile', 2, 'Profile & bank details', s.d.profile, profileForm(u), s.next === 'profile')}
   ${sec('docs', 3, 'Aadhaar & PAN card', s.d.docs, docsForm(u), s.next === 'docs')}
@@ -744,6 +745,15 @@ function accessView(){
 }
 
 /* ---------- shoot schedule */
+// the next shoot day for this production, shown to everyone as a call-sheet card
+const nextCall = pid => S.days.filter(d => d.pid === pid && d.status === 'planned' && d.date >= today()).sort((a, b) => a.date.localeCompare(b.date))[0];
+function callCard(pid){
+  const d = nextCall(pid); if (!d) return '';
+  const when = d.date === today() ? 'Today' : d.date === isoD(dayOff(1)) ? 'Tomorrow' : new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long'});
+  return `<button class="callcard" data-act="open-day" data-id="${d.id}"><span class="eyebrow">Next shoot · ${when}</span>
+    <span class="cc-main"><b class="cc-time">${esc(d.call)}</b><span><b>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'short', day:'numeric', month:'short'})}</b><span class="muted">${esc(d.location || 'Location to be confirmed')}</span></span></span>
+    <span class="cc-meta"><span>Call ${esc(d.call)}</span><span>Wrap ~${esc(d.wrap)}</span>${d.epFrom ? `<span>${esc(epsLabel(d))}</span>` : ''}${d.note ? `<span>${esc(d.note)}</span>` : ''}</span></button>`;
+}
 function scheduleView(){
   const p = proj(U.pid), r = myRole(), staff = isStaff(r), edit = can.schedule(r);
   if (!U.month) U.month = ymOf(today());
@@ -760,6 +770,7 @@ function scheduleView(){
   <div class="spread"><div class="row"><button class="btn sm" data-act="month" data-id="-1" aria-label="Previous month">${icon('back', 16)}</button><h2 style="min-width:180px;text-align:center">${ymLabel(ym)}</h2>
     <button class="btn sm" data-act="month" data-id="1" aria-label="Next month"><span style="display:inline-flex;transform:scaleX(-1)">${icon('back', 16)}</span></button><button class="btn ghost sm" data-act="month" data-id="0">This month</button></div>
     ${edit ? `<button class="btn primary" data-act="plan">${icon('plus', 16)}Plan shoot days</button>` : ''}</div>
+  ${callCard(p.id)}
   <div class="kpis">
     <div class="kpi"><span class="eyebrow">Scheduled in ${ymShort(ym)}</span><span class="v">${ms.sched}</span><span class="s">${ms.planned} still ahead</span></div>
     <div class="kpi"><span class="eyebrow">Shot</span><span class="v">${ms.shot}</span><span class="s">${ms.eps} episodes</span></div>
@@ -777,10 +788,11 @@ function dayDrawer(d){
   <div class="stack" style="gap:4px"><p class="eyebrow">${esc(p.name)} · shoot day</p><h2>${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})}</h2><p class="muted">${esc(epsLabel(d))} · ${esc(d.location)}</p></div>
   <section class="panel"><dl class="dl"><dt>Call time</dt><dd class="mono">${d.call}</dd><dt>Expected wrap</dt><dd class="mono">${d.wrap}</dd><dt>Location</dt><dd>${esc(d.location)}</dd>${d.note ? `<dt>Note</dt><dd>${esc(d.note)}</dd>` : ''}
     ${isStaff(r) && d.status === 'shot' ? `<dt>Day-rate cost</dt><dd class="num">${inr(dayRate.reduce((s, m) => s + m.rate, 0))} <span class="muted small">for ${dayRate.length} people checked in</span></dd>` : ''}</dl></section>
-  ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status !== 'cancelled' ? `<button class="btn" data-act="day-status" data-id="${d.id}" data-s="cancelled">Cancel this day</button>` : ''}${d.status !== 'planned' ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>` : ''}
+  ${edit ? `<div class="row">${d.status !== 'shot' && d.date <= today() ? `<button class="btn primary" data-act="day-status" data-id="${d.id}" data-s="shot">Mark as shot</button>` : ''}${d.status === 'planned' ? `<button class="btn" data-act="day-edit" data-id="${d.id}">Edit call time & details</button>` : ''}${d.status !== 'cancelled' && !d.att.length ? `<button class="btn" data-act="day-cancel" data-id="${d.id}">Cancel this day</button>` : ''}${d.status !== 'planned' && !d.att.length ? `<button class="btn ghost" data-act="day-status" data-id="${d.id}" data-s="planned">Back to scheduled</button>` : ''}</div>
+    ${d.att.length && d.status !== 'cancelled' ? '<p class="small muted">People are checked in on this day, so it can’t be cancelled or moved back. Remove their check-ins first.</p>' : ''}` : ''}
   ${edit && d.status !== 'cancelled' && d.date <= today() ? `<section class="panel stack"><h3>Gate check-in</h3><form class="row" data-form="checkin" style="align-items:flex-end"><label class="f" style="flex:1 1 200px">Crew ID<input type="text" id="ci-code" class="mono" placeholder="e.g. ${esc(memberIn(d.pid, 'u_imran')?.code || 'AB12CD')}" autocomplete="off"></label><button class="btn primary" type="submit">Check in</button></form><p class="err" id="ci-err"></p><p class="small muted">In the live app the gate scans the QR on each Crew ID. These days fill everyone’s invoices.</p></section>` : ''}
   ${isStaff(r) ? `<section class="panel"><h3>Checked in (${present.length})</h3>${present.length ? `<ul class="feed">${present.map(m => `<li>${av(user(m.userId), 26)}<span class="spread"><span><b>${esc(user(m.userId).name)}</b> · ${esc(m.job)}</span>${edit ? `<button class="btn ghost sm" data-act="uncheck" data-id="${d.id}" data-u="${m.userId}">Remove</button>` : ''}</span></li>`).join('')}</ul>` : '<p class="muted">No one checked in.</p>'}</section>`
-    : `<section class="panel"><p>${d.att.includes(S.session) ? '✓ You were checked in on this day.' : 'You weren’t checked in on this day.'}</p></section>`}`;
+    : `<section class="panel"><p>${d.att.includes(S.session) ? '✓ You were checked in on this day.' : d.status === 'cancelled' ? 'No shoot on this day.' : d.date >= today() ? `You’re called at <b>${esc(d.call)}</b>${d.location ? ' at ' + esc(d.location) : ''}. Show your Crew ID at the gate.` : 'You weren’t checked in on this day.'}</p></section>`}`;
 }
 
 /* ---------- monthly report */
@@ -1075,6 +1087,21 @@ function modalBody(){
       <label class="f">${M.yes ? 'Note <span class="hint">optional</span>' : 'Why keep them <span class="hint">the person who asked sees this</span>'}<textarea id="rm-note" rows="2" maxlength="500"></textarea></label>
       <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
+  if (M.type === 'dayedit'){
+    const d = S.days.find(x => x.id === M.id);
+    return `${head('Edit shoot day', `${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})} · everyone on the show is told if the call, wrap or location changes`)}
+    <form class="stack" data-form="dayedit"><div class="grid2"><label class="f">Call time<input type="time" id="de-call" value="${esc(d.call)}"></label><label class="f">Expected wrap<input type="time" id="de-wrap" value="${esc(d.wrap)}"></label></div>
+      <label class="f">Location<input type="text" id="de-loc" value="${esc(d.location === '—' ? '' : d.location || '')}"></label>
+      <div class="grid2"><label class="f">First episode<input type="number" id="de-ep1" min="1" class="mono" value="${d.epFrom || ''}"></label><label class="f">Last episode<input type="number" id="de-ep2" min="1" class="mono" value="${d.epTo || ''}"></label></div>
+      <label class="f">Note for the crew <span class="hint">optional · e.g. night shoot, bring warm clothes</span><input type="text" id="de-note" maxlength="200" value="${esc(d.note || '')}"></label>
+      <p class="err" id="de-err"></p><div class="row"><button class="btn primary" type="submit">Save and tell the crew</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'daycancel'){
+    const d = S.days.find(x => x.id === M.id);
+    return `${head('Cancel this shoot day', `${new Date(d.date + 'T12:00').toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long'})} · everyone on the show is told`)}
+    <form class="stack" data-form="daycancel"><label class="f">Reason <span class="hint">the crew sees this</span><input type="text" id="dc-why" maxlength="200" placeholder="e.g. Lead actor unwell; scenes move to next week"></label>
+      <p class="err" id="dx-err"></p><div class="row"><button class="btn danger" type="submit">Cancel the day</button><button class="btn ghost" type="button" data-act="close-modal">Keep it</button></div></form>`;
+  }
   if (M.type === 'adjust'){
     const i = S.invoices.find(x => x.id === M.id), have = i.deductions || [], rows = [...have, {}, {}, {}].slice(0, Math.max(3, have.length + 1));
     return `${head(`Deductions · ${esc(i.no)}`, `${esc(user(i.by).name)} · invoice total ${inr(i.amount + i.gst)} · TDS −${inr(i.tds)}`)}
@@ -1237,6 +1264,8 @@ const ACT = {
   agk: el => { U.agk = el.dataset.id; U.agf = 'all'; render(); },
   agf: el => { U.agf = el.dataset.id; render(); },
   adjust: el => { U.modal = {type:'adjust', id:el.dataset.id}; renderLayer(); adjCalc(); },
+  'day-edit': el => { U.modal = {type:'dayedit', id:el.dataset.id}; renderLayer(); },
+  'day-cancel': el => { U.modal = {type:'daycancel', id:el.dataset.id}; renderLayer(); },
   'rm-open': el => { U.modal = {type:'remove', id:el.dataset.id}; renderLayer(); },
   'rm-ask': el => { U.modal = {type:'rmask', id:el.dataset.id}; renderLayer(); },
   'rm-decide': el => { U.modal = {type:'rmdecide', id:el.dataset.id, yes:!!el.dataset.yes}; renderLayer(); },
@@ -1394,6 +1423,13 @@ const FORMS = {
     const t = items.reduce((a, d) => a + d.amount, 0); if (t > base) return err('dd-err', `Deductions can’t be more than the amount payable (${inr(base)}).`);
     Object.assign(i, {deductions:items, deduction:t, remarks:rem, payable:base - t});
     log(U.pid, 'invoice', `Updated ${i.no} (${user(i.by).name}): deductions ${inr(t)}${rem ? `, remark “${rem}”` : ''}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} saved · pays ${inr(base - t)}`); },
+  dayedit: () => { const d = S.days.find(x => x.id === U.modal.id), e1 = +val('de-ep1') || null, e2 = +val('de-ep2') || e1;
+    if (!/^\d\d:\d\d$/.test(val('de-call')) || !/^\d\d:\d\d$/.test(val('de-wrap'))) return err('de-err', 'Enter times like 07:30.');
+    if (e1 && e2 < e1) return err('de-err', 'The last episode can’t be before the first.');
+    Object.assign(d, {call:val('de-call'), wrap:val('de-wrap'), location:val('de-loc') || '—', epFrom:e1, epTo:e1 ? e2 : null, note:val('de-note')});
+    log(U.pid, 'schedule', `Changed ${fmtD(d.date)}: call ${d.call}, ${d.location}`); U.modal = null; done('Saved; the crew have been told'); },
+  daycancel: () => { const d = S.days.find(x => x.id === U.modal.id); d.status = 'cancelled'; d.note = val('dc-why') || d.note;
+    log(U.pid, 'schedule', `Marked ${fmtD(d.date)} as cancelled${val('dc-why') ? ': ' + val('dc-why') : ''}`); U.modal = null; done(`${fmtD(d.date)} cancelled; the crew have been told`); },
   remove: () => { const m = member(U.modal.id), why = val('rm-why'), name = user(m.userId).name;
     if (why.length < 4) return err('rm-err', 'Say why they’re being removed.');
     if (rmOpen(m)) return err('rm-err', 'They have an invoice in approval or waiting for payment. Pay or reject it first.');

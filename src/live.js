@@ -226,6 +226,10 @@ Object.assign(FORMS, {
   rmask: async () => { if (await call('request_removal', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err') === FAIL) return; U.modal = null; done('Request sent to the CFO and Commercial Head'); },
   rmdecide: async () => { const r = await call('decide_removal', {p_request:U.modal.id, p_approve:!!U.modal.yes, p_note:v('rm-note')}, 'rm-err'); if (r === FAIL) return;
     if (r !== 'declined') U.drawer = null; U.modal = null; done(r === 'declined' ? 'Kept; they’ve been told why' : r === 'deleted' ? 'Approved and deleted' : 'Approved; removed from the production'); },
+  dayedit: async () => { const e1 = v('de-ep1'), e2 = v('de-ep2');
+    if (await call('update_day', {p_day:U.modal.id, p:{call:v('de-call'), wrap:v('de-wrap'), location:v('de-loc'), note:v('de-note'), ep_from:e1, ep_to:e2 || e1}}, 'de-err') === FAIL) return;
+    U.modal = null; done('Saved; the crew have been told about any change to the call, wrap or location'); },
+  daycancel: async () => { if (await call('set_day_status', {p_day:U.modal.id, p_status:'cancelled', p_note:v('dc-why')}, 'dx-err') === FAIL) return; U.modal = null; done('Day cancelled; the crew have been told'); },
   adjust: async () => { const items = dedRows().map(({type, amount, note}) => ({type, amount, note}));
     const r = await call('set_invoice_adjustments', {p_id:U.modal.id, p_items:items, p_remarks:v('dd-rem')}, 'dd-err'); if (r === FAIL) return; U.modal = null; done(`Saved · will pay ${inr(+r)}`); },
   reject: async () => { if (await call('reject_crew_invoice', {p_id:U.modal.id, p_reason:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; U.drawer = null; done('Invoice rejected; they’ll see the reason'); },
