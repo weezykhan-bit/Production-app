@@ -492,7 +492,7 @@ function topBar(){
     ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
     <span class="grow"></span>
     <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
-    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="mfa">Two-step login${mfaState().aal === 'aal2' ? ' · on' : ''}</button><button data-act="help">How to use CrewDesk</button><button data-act="reset">Reset demo data</button><button data-act="logout">Sign out</button></div>` : ''}
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="notifs">Notifications</button><button data-act="mfa">Two-step login${mfaState().aal === 'aal2' ? ' · on' : ''}</button><button data-act="help">How to use CrewDesk</button><button data-act="reset">Reset demo data</button><button data-act="logout">Sign out</button></div>` : ''}
   </header>`;
 }
 
@@ -1112,6 +1112,19 @@ function mfaState(){
   return {needed:isOwner(u.title) || S.members.some(m => m.userId === u.id && m.role === 'accounts'), factor:u.mfaOn ? 'demo' : null, aal:u.mfaOn && U.mfaAal ? 'aal2' : 'aal1', enroll:U.mfaEnroll || null};
 }
 const DEMO_QR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges"><rect width="21" height="21" fill="#fff"/><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z" fill="#111"/><path d="M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z" fill="#fff"/><path d="M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2zM9 1h1v2H9zM11 3h2v1h-2zM8 8h2v2H8zM12 9h3v1h-3zM9 12h1v3H9zM14 14h2v2h-2zM17 12h2v1h-2zM12 17h3v2h-3zM18 17h2v3h-2z" fill="#111"/></svg>');
+// what each person may switch off: progress updates only. Anything they must act on, and money or legal notices, always arrive.
+const NOTIFY_OPT = [['invoice_step','Each step of my invoices','Passed the audit, checked, confirmed, approved. You always hear when it’s paid, rejected or has a deduction.'],
+  ['schedule','Schedule changes','New shoot days, call time or location changes, cancellations.'],
+  ['call','Evening-before call reminder','At 6 pm: tomorrow’s call time and location.'],
+  ['checkin','Checked in at the gate','A note each time you’re checked in.'],
+  ['task_update','Updates on my tasks','Status changes, comments and solutions on tasks you’re on. New tasks for you always arrive.']];
+function notifsBody(){
+  const off = me()?.notifyOff || [];
+  return `<div class="spread"><h2>Notifications</h2><button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button></div>
+  <p class="muted small">Choose the updates you want. Whatever needs your action, and payments, rejections, deductions, deal changes and agreements, always reach you.</p>
+  <form class="stack" data-form="notifs"><div class="toggles">${NOTIFY_OPT.map(([k, l, h]) => `<label class="toggle"><input type="checkbox" name="nf" value="${k}" ${off.includes(k) ? '' : 'checked'}><span><b>${l}</b><small>${h}</small></span></label>`).join('')}</div>
+    <p class="err" id="nf-err"></p><div class="row"><button class="btn primary" type="submit">Save</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+}
 function mfaBody(){
   const st = mfaState(), close = `<button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button>`;
   const why = st.needed ? 'Your role moves money, so CrewDesk asks for it before you pay, send to Tally, approve agreements, change deals or see full bank and PAN numbers.' : 'Optional for your role, and recommended.';
@@ -1526,6 +1539,7 @@ function modalBody(){
   }
   if (M.type === 'costimport') return costImportBody(M);
   if (M.type === 'mfa') return mfaBody();
+  if (M.type === 'notifs') return notifsBody();
   if (M.type === 'float'){
     const ppl = S.members.filter(m => m.pid === U.pid && !m.removed && !m.pending && !m.synthetic && isStaff(m.role));
     return `${head('Give petty cash', 'The holder is told, and what they pay from it comes off their balance')}
@@ -1788,6 +1802,7 @@ const ACT = {
     Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
   'inv-doc': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.'); const w = window.open(); if (w) w.document.write(`<iframe src="${i.doc}" style="border:0;width:100%;height:100vh"></iframe>`); },
   mfa: () => { U.menu = false; U.modal = {type:'mfa'}; render(); },
+  notifs: () => { U.menu = false; U.notesOpen = false; U.modal = {type:'notifs'}; render(); },
   'mfa-start': () => { U.mfaEnroll = {qr:DEMO_QR, secret:'JBSW Y3DP EHPK 3PXP'}; renderLayer(); setTimeout(() => $('#mf-code')?.focus(), 50); },
   'mfa-off': () => { const u = me(); if (mfaState().needed) return err('mf-err', 'Your role needs two-step login, so it stays on.'); u.mfaOn = false; U.mfaAal = null; U.modal = null; done('Two-step login turned off'); },
   'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id || null, date:el.dataset.date || S.days.find(x => x.id === el.dataset.id)?.date}; renderLayer(); },
@@ -1955,6 +1970,7 @@ const FORMS = {
     log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
   mfa: () => { const c = val('mf-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
     const u = me(); u.mfaOn = true; U.mfaAal = 'aal2'; U.mfaEnroll = null; U.modal = null; done('Two-step login is on for this session'); },
+  notifs: () => { me().notifyOff = NOTIFY_OPT.map(([k]) => k).filter(k => !document.querySelector(`input[name=nf][value="${k}"]`).checked); U.modal = null; done('Notification choices saved'); },
   audit: () => ACT['inv-step']({dataset:{id:U.modal.id, head:val('au-head')}}),
   costadd: () => { const c = costForm(); if (!c) return;
     (S.costs ||= []).push({id:uid('c'), pid:U.pid, ...c, source:'manual', batch:null, by:S.session, at:Date.now()}); U.chead = c.head; U.cmode = c.mode;

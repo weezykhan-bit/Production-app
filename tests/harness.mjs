@@ -36,6 +36,7 @@ await db.exec(read('supabase/migrations/20261108100000_view_lockdown.sql'));
 await db.exec(read('supabase/migrations/20261109100000_overtime.sql'));
 await db.exec(read('supabase/migrations/20261110100000_controller_and_invoice_files.sql'));
 await db.exec(read('supabase/migrations/20261111100000_phone_mfa_encryption_imdb.sql').replace('create extension if not exists pgcrypto with schema extensions;', ''));
+await db.exec(read('supabase/migrations/20261112100000_notification_prefs.sql'));
 // scripted runs start with the welcome video already seen; a test turns it back on where it checks it
 await db.exec('alter table profiles alter column tour_seen_at set default now(); update profiles set tour_seen_at = now()');
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };

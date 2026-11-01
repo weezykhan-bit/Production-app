@@ -101,7 +101,7 @@ async function load(){
   const next = {session:S.session, admins:admins.map(a => ({userId:a.user_id, role:a.role}))};
   next.company = ci ? {...ci, setupAt:ts(ci.setupAt)} : null;
   next.users = people.map(p => ({id:p.id, username:p.username || '', name:p.full_name || p.username || 'Someone', title:adminOf[p.id] || 'crew', phone:p.phone || '', email:p.email || '',
-    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || (p.pan_tail ? '••••••' + p.pan_tail : ''), imdb:p.imdb_url || '', kycMasked:!p.pan && !!(p.pan_tail || p.bank_tail), gstin:p.gstin || '', address:p.address || '',
+    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || (p.pan_tail ? '••••••' + p.pan_tail : ''), imdb:p.imdb_url || '', notifyOff:p.notify_off || [], kycMasked:!p.pan && !!(p.pan_tail || p.bank_tail), gstin:p.gstin || '', address:p.address || '',
     bank:{holder:p.bank_holder || '', name:p.bank_name || '', acct:p.bank_account || (p.bank_tail ? '••••' + p.bank_tail : ''), ifsc:p.bank_ifsc || ''}, emergency:p.emergency || '',
     aadhaar4:p.aadhaar_last4 || '', docs:{aadhaar:p.aadhaar_path ? (url(p.aadhaar_path) || 'sample') : '', pan:p.pan_path ? (url(p.pan_path) || 'sample') : ''},
     consent:!!p.consent_at, ready:{profile:!!p.profile_ready, docs:!!p.docs_ready}}));
@@ -339,6 +339,8 @@ Object.assign(FORMS, {
   mfa: async () => { const c = v('mf-code').replace(/\s/g, ''), st = mfaState(); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
     try { await DB.auth.mfa.verify(st.enroll?.id || st.factor, c); } catch (e) { return err('mf-err', /invalid|expired/i.test(e.message) ? 'That code didn’t match. Check the time on your phone is set automatically, and use the newest code.' : friendly(e.message)); }
     U.mfaInfo = {...st, enroll:null}; await refreshMfa(); const back = U.modal?.then || null; U.modal = back; done(st.enroll ? 'Two-step login is on' : 'Confirmed. Carry on.'); },
+  notifs: async () => { const off = NOTIFY_OPT.map(([k]) => k).filter(k => !document.querySelector(`input[name=nf][value="${k}"]`).checked);
+    if (await call('set_notify_prefs', {p_off:off}, 'nf-err') === FAIL) return; U.modal = null; done('Notification choices saved'); },
   phone1: async () => { const n = phoneE164(v('ph-num')); if (!n) return err('ph-err', 'Enter your 10-digit mobile number.');
     try { await DB.auth.phoneStart(n); U.phoneTo = n; U.auth = 'phone2'; render(); setTimeout(() => $('#ph-code')?.focus(), 50); } catch (e) { err('ph-err', friendly(e.message)); } },
   phone2: async () => { const c = v('ph-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('ph-err', 'Enter the 6-digit code from the SMS.');
@@ -474,7 +476,7 @@ topBar = function(){
 };
 function notesPanel(){
   const list = S.notes || [], ask = 'Notification' in window && Notification.permission === 'default';
-  return `<section class="notes" aria-label="Notifications"><header class="spread"><b>Notifications</b>${unread() ? '<button class="btn ghost sm" data-act="notes-read">Mark all read</button>' : ''}</header>
+  return `<section class="notes" aria-label="Notifications"><header class="spread"><b>Notifications</b><button class="btn ghost sm" data-act="notifs">Choose</button>${unread() ? '<button class="btn ghost sm" data-act="notes-read">Mark all read</button>' : ''}</header>
     ${ask ? '<button class="notes-perm" data-act="notes-perm">Turn on desktop alerts for when CrewDesk is open in another tab</button>' : ''}
     <ul>${list.map(n => `<li><button data-act="note-open" data-id="${n.id}" class="${n.read ? '' : 'unread'}"><span class="dot" aria-hidden="true"></span><span class="tx"><b>${esc(n.title)}</b>${n.body ? `<span>${esc(n.body)}</span>` : ''}<time>${n.pid && proj(n.pid) ? esc(proj(n.pid).name) + ' · ' : ''}${fmtT(n.at)}</time></span></button></li>`).join('')
       || '<li class="none">Nothing yet. Approvals, signatures, invoices and payments that concern you will show here.</li>'}</ul></section>`;

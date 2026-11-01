@@ -287,6 +287,8 @@ try {
   if (!/IMDb page link/.test(await text('#pf-err'))) errs.push('bad IMDb link not refused');
   await p.fill('#pf-imdb', 'https://www.imdb.com/name/nm0000001/'); await click('form[data-form=profile] button[type=submit]'); await p.waitForTimeout(300);
   if (await ev(() => me().imdb) !== 'https://www.imdb.com/name/nm0000001/') errs.push('IMDb link not saved: ' + await text('#pf-err').catch(() => '')); else ok('IMDb link saved on the profile');
+  await click('.me'); await click('.menu [data-act=notifs]'); await p.uncheck('input[name=nf][value=invoice_step]'); await click('form[data-form=notifs] button[type=submit]'); await p.waitForTimeout(300);
+  if (JSON.stringify(await ev(() => me().notifyOff)) !== '["invoice_step"]') errs.push('notification choice not saved: ' + await text('#nf-err').catch(() => '')); else ok('crew member switched off invoice-step updates');
   await signOut(); await signIn('fowzan'); await click('[data-act=open-project]');
   await click('.me'); await click('.menu [data-act=mfa]'); await p.fill('#mf-code', '123456'); await click('form[data-form=mfa] button[type=submit]'); await p.waitForTimeout(300);
   await ev(() => { U.modal = null; renderLayer(); });
