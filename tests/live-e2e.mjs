@@ -97,7 +97,21 @@ try {
   await click('form[data-form=sign] button[type=submit]');
   if (await ev(() => memberIn(U.pid, S.session).ag.status) !== 'signed') throw new Error('signing failed: ' + await text('#sg-err').catch(() => ''));
   const crewCode = await ev(() => memberIn(U.pid, S.session).code); ok('crew signed'); await signOut();
-  await signIn('fowzan'); await click('[data-act=open-project]'); await click('[data-act=open-person]');
+  await signIn('fowzan'); await click('[data-act=open-project]');
+  // the CFO must use two-step login for money and people actions: the home list says so, and approving without it asks for it
+  if (!(await text('main')).includes('Turn on two-step login')) errs.push('no reminder to turn on two-step login');
+  if (await ev(() => S.users.find(u => u.name === 'Imran Shaikh')?.bank?.acct?.startsWith('••••'))) ok('without two-step login the CFO sees only the last 4 digits of crew bank accounts'); else errs.push('bank account not masked before two-step login');
+  await click('[data-act=open-person]'); await click('.drawer [data-act=countersign]'); await p.waitForTimeout(200);
+  if (!(await p.$('.dialog [data-act=mfa-start]'))) throw new Error('approval without two-step login did not ask for it');
+  await click('.dialog [data-act=mfa-start]'); if (!(await p.$('.qrbox img'))) errs.push('no QR code to scan');
+  await p.fill('#mf-code', '000000'); await click('form[data-form=mfa] button[type=submit]');
+  if (!/didn’t match/.test(await text('#mf-err'))) errs.push('wrong code not refused: ' + await text('#mf-err'));
+  await p.fill('#mf-code', '123456'); await click('form[data-form=mfa] button[type=submit]'); await p.waitForTimeout(300);
+  if (await ev(() => U.mfaInfo?.aal) !== 'aal2') throw new Error('two-step login not turned on');
+  if (!(await ev(() => /^\d+$/.test(S.users.find(u => u.name === 'Imran Shaikh')?.bank?.acct || '')))) errs.push('full bank account not shown after two-step login');
+  ok('two-step login: set up with an authenticator code; full bank details unlock');
+  await p.keyboard.press('Escape'); await ev(() => { U.modal = null; U.drawer = null; renderLayer(); });
+  await click('[data-act=open-person]');
   await click('.drawer [data-act=countersign]');
   if (await ev(() => S.members.find(m => m.job.startsWith('1st AC')).ag.status) !== 'countersigned') throw new Error('owner approval failed'); ok('owner approved the agreement');
   if (!(await ev(() => S.users.find(u => u.name === 'Imran Shaikh').pan === 'FHSPS3349D'))) errs.push('owner cannot see crew PAN');
@@ -149,6 +163,11 @@ try {
   if (!(await text('main tbody')).includes('Return the walkie')) errs.push('remark not shown in the invoice table');
   ok('owner took off ₹50 advance with a remark; payable now ₹4,405');
   await click('.rail [data-id=finance]'); await p.check('input[data-change=selall]'); await p.waitForTimeout(150); await click('[data-act=payrun]');
+  await p.fill('#md-v', 'HDFCBATCH001'); await click('form[data-form=payrun] button[type=submit]'); await p.waitForTimeout(200);
+  // a fresh sign-in asks for the authenticator code once, then the payment form comes back to finish
+  if (!(await p.$('form[data-form=mfa] #mf-code'))) errs.push('paying in a new session did not ask for the two-step code');
+  await p.fill('#mf-code', '123456'); await click('form[data-form=mfa] button[type=submit]'); await p.waitForTimeout(300);
+  if (!(await p.$('form[data-form=payrun]'))) errs.push('payment form did not come back after the code');
   await p.fill('#md-v', 'HDFCBATCH001'); await click('form[data-form=payrun] button[type=submit]');
   if (await ev(() => S.invoices[0].status) !== 'paid') throw new Error('payment failed: ' + await text('#md-err').catch(() => ''));
   ok('approved and paid');
@@ -200,6 +219,8 @@ try {
   await click('.drawer [data-act=rm-ask]'); await p.fill('#rm-why', 'Hired twice by mistake'); await click('form[data-form=rmask] button[type=submit]');
   if (!(await text('.drawer')).includes('Removal asked')) errs.push('request not shown on the person: ' + await text('#rm-err').catch(() => ''));
   await signOut(); await signIn('fowzan'); await click('[data-act=open-project]');
+  if (!(await text('main')).includes('Confirm it’s you with two-step login')) errs.push('owner Home lacks the two-step reminder after a fresh sign-in');
+  await click('.me'); await click('.menu [data-act=mfa]'); await p.fill('#mf-code', '123456'); await click('form[data-form=mfa] button[type=submit]'); await p.waitForTimeout(300); await ev(() => { U.modal = null; renderLayer(); });
   if (!(await text('main')).includes('Decide: remove Kavya Rao?')) errs.push('owner Home lacks the removal request');
   await click('.rail [data-id=people]'); await click('[data-act=pf][data-id=asked]'); await click('#people-rows tr:has-text("Kavya Rao")');
   await click('.drawer [data-act=rm-decide][data-yes]'); await click('form[data-form=rmdecide] button[type=submit]');
@@ -246,6 +267,30 @@ try {
   if (td){ await ev(id => { U.drawer = {type:'day', id}; renderLayer(); }, td); await fill({'dp-call':'07:30', 'dp-wrap':'21:15', 'dp-plan':7, 'dp-shot':5}); await click('form[data-form=dpr] button[type=submit]');
     if (!(await text('.drawer')).includes('1h 45m overtime')) errs.push('daily report not filed: ' + await text('#dp-err').catch(() => '')); else ok('daily report filed; 1h 45m overtime shown');
     await p.keyboard.press('Escape'); }
+  // 6c. Mobile sign-in: the office invites by number; the person signs in with an SMS code and takes up that invite; IMDb link on their profile
+  await click('.rail [data-id=people]'); await click('[data-act=onboard]'); await fill({'ob-name':'Ravi Kumar', 'ob-rate':3000, 'ob-phone':'98765 43210'});
+  await click('form[data-form=onboard] button[type=submit]'); await p.keyboard.press('Escape'); await ev(() => { U.modal = null; renderLayer(); });
+  await signOut(); await p.goto('http://localhost:5188/'); await p.waitForSelector('.login-form');
+  await click('[data-act=phone-mode]'); await p.fill('#ph-num', '12345'); await click('form[data-form=phone1] button[type=submit]');
+  if (!/10-digit/.test(await text('#ph-err'))) errs.push('bad mobile number not refused');
+  await p.fill('#ph-num', '98765 43210'); await click('form[data-form=phone1] button[type=submit]');
+  await p.fill('#ph-code', '000000'); await click('form[data-form=phone2] button[type=submit]'); await p.waitForTimeout(200);
+  if (!/didn’t match/.test(await text('#ph-err'))) errs.push('wrong SMS code not refused');
+  await p.fill('#ph-code', '123456'); await click('form[data-form=phone2] button[type=submit]'); await p.waitForTimeout(500);
+  if (!(await ev(() => !!S.session))) throw new Error('mobile sign-in failed');
+  await fill({'join-code':code}); await click('form[data-form=join] button[type=submit]'); await p.waitForTimeout(400);
+  if (await ev(() => memberIn(U.pid, S.session)?.rate) !== 3000) errs.push('mobile sign-in did not take up the invite for that number'); else ok('mobile sign-in with an SMS code; took up the invite sent to that number');
+  await ev(() => { U.view = 'invoices'; render(); U.modal = {type:'profile'}; renderLayer(); }); await p.waitForTimeout(100);
+  if (await ev(() => document.querySelectorAll('#pf-legal').length) !== 1) errs.push('more than one profile form open');
+  await fill({'pf-legal':'Ravi Kumar', 'pf-addr':'Andheri, Mumbai', 'pf-pan':'ABCPK1234L', 'pf-holder':'Ravi Kumar', 'pf-acct':'123456789012', 'pf-ifsc':'HDFC0001234', 'pf-imdb':'https://imdb.com/title/tt1'});
+  await click('form[data-form=profile] button[type=submit]');
+  if (!/IMDb page link/.test(await text('#pf-err'))) errs.push('bad IMDb link not refused');
+  await p.fill('#pf-imdb', 'https://www.imdb.com/name/nm0000001/'); await click('form[data-form=profile] button[type=submit]'); await p.waitForTimeout(300);
+  if (await ev(() => me().imdb) !== 'https://www.imdb.com/name/nm0000001/') errs.push('IMDb link not saved: ' + await text('#pf-err').catch(() => '')); else ok('IMDb link saved on the profile');
+  await signOut(); await signIn('fowzan'); await click('[data-act=open-project]');
+  await click('.me'); await click('.menu [data-act=mfa]'); await p.fill('#mf-code', '123456'); await click('form[data-form=mfa] button[type=submit]'); await p.waitForTimeout(300);
+  await ev(() => { U.modal = null; renderLayer(); });
+  if (await ev(() => S.users.find(u => u.name === 'Ravi Kumar')?.imdb) !== 'https://www.imdb.com/name/nm0000001/') errs.push('the office does not see the IMDb link'); else ok('the office sees the IMDb link');
   // 7. Live: the crew member has CrewDesk open on their phone; the owner changes their deal; it arrives without a refresh
   const ctx2 = await b.newContext({viewport:{width:390, height:844}});
   await ctx2.exposeFunction('pgCall', async (op, a) => { try { return await pg(op, a); } catch (e) { return {__error:e.message}; } });

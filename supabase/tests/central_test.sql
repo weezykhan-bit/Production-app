@@ -3,6 +3,8 @@
 --            20261030100000_central.sql, 20261030100100_central_storage.sql
 \set ON_ERROR_STOP 1
 \set QUIET 1
+-- these checks run as if everyone has passed two-step login; central_security_test.sql checks what happens without it
+select set_config('request.jwt.claims', '{"aal":"aal2"}', false) \g /dev/null
 create function ok(c boolean, l text) returns void language plpgsql as $$
 begin if not coalesce(c, false) then raise exception 'FAILED: %', l; end if; raise notice 'ok %', l; end $$;
 create function refused(q text, pat text) returns void language plpgsql as $$
@@ -86,7 +88,7 @@ select ok((select count(*) from people) = 6 and not exists (select 1 from people
           'crew see themselves, the owners and the production office, but no other crew');
 select ok(company_info() -> 'bank' ->> 'acct' like '••••%', 'crew see the company bank account masked');
 -- profile and documents
-select refused($$select save_profile('{"legal":"Imran Shaikh","pan":"BAD","address":"Mumbai","bank_holder":"Imran","bank_account":"917010023456789","bank_ifsc":"UTIB0000071"}')$$, 'pan_check');
+select refused($$select save_profile('{"legal":"Imran Shaikh","pan":"BAD","address":"Mumbai","bank_holder":"Imran","bank_account":"917010023456789","bank_ifsc":"UTIB0000071"}')$$, 'pan_check|PAN is 10 characters');
 select save_profile('{"legal":"Imran Shaikh","pan":"FHSPS3349D","address":"Jogeshwari, Mumbai","bank_holder":"Imran Shaikh","bank_name":"Axis","bank_account":"917010023456789","bank_ifsc":"utib0000071","phone":"9930018842"}');
 select refused(format($$select set_document('aadhaar', %L)$$, :'asha' || '/aadhaar-1.jpg'), 'own folder');
 select refused($$select save_documents('1234', true)$$, 'masked Aadhaar');

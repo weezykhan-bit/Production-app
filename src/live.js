@@ -54,6 +54,24 @@ async function liveDB(cfg){
         return { needsConfirm: !data.session };
       },
       usernameFree: async u => unwrap(await sb.rpc('username_available', { p_username: u })),
+      // a one-time code by SMS (Supabase phone sign-in, once an SMS provider is set up)
+      async phoneStart(phone){ unwrap(await sb.auth.signInWithOtp({ phone })); },
+      async phoneVerify(phone, token){ unwrap(await sb.auth.verifyOtp({ phone, token, type: 'sms' })); },
+      // two-step login with an authenticator app
+      mfa: {
+        async status(){
+          const a = unwrap(await sb.auth.mfa.getAuthenticatorAssuranceLevel()), f = unwrap(await sb.auth.mfa.listFactors());
+          return { aal: a?.currentLevel || 'aal1', factor: (f?.totp || []).find(x => x.status === 'verified')?.id || null };
+        },
+        async enroll(){
+          const f = unwrap(await sb.auth.mfa.listFactors());
+          for (const x of (f?.all || []).filter(x => x.factor_type === 'totp' && x.status !== 'verified')) await sb.auth.mfa.unenroll({ factorId: x.id });
+          const d = unwrap(await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'CrewDesk ' + new Date().toISOString().slice(0, 16) }));
+          return { id: d.id, qr: d.totp.qr_code, secret: d.totp.secret };
+        },
+        async verify(factorId, code){ unwrap(await sb.auth.mfa.challengeAndVerify({ factorId, code })); await sb.auth.refreshSession(); },
+        async remove(factorId){ unwrap(await sb.auth.mfa.unenroll({ factorId })); await sb.auth.refreshSession(); }
+      },
       async resetPassword(email){ unwrap(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname })); },
       async updatePassword(password){ unwrap(await sb.auth.updateUser({ password })); },
       async signOut(){ await sb.auth.signOut(); },
@@ -83,8 +101,8 @@ async function load(){
   const next = {session:S.session, admins:admins.map(a => ({userId:a.user_id, role:a.role}))};
   next.company = ci ? {...ci, setupAt:ts(ci.setupAt)} : null;
   next.users = people.map(p => ({id:p.id, username:p.username || '', name:p.full_name || p.username || 'Someone', title:adminOf[p.id] || 'crew', phone:p.phone || '', email:p.email || '',
-    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || '', gstin:p.gstin || '', address:p.address || '',
-    bank:{holder:p.bank_holder || '', name:p.bank_name || '', acct:p.bank_account || '', ifsc:p.bank_ifsc || ''}, emergency:p.emergency || '',
+    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || (p.pan_tail ? '••••••' + p.pan_tail : ''), imdb:p.imdb_url || '', kycMasked:!p.pan && !!(p.pan_tail || p.bank_tail), gstin:p.gstin || '', address:p.address || '',
+    bank:{holder:p.bank_holder || '', name:p.bank_name || '', acct:p.bank_account || (p.bank_tail ? '••••' + p.bank_tail : ''), ifsc:p.bank_ifsc || ''}, emergency:p.emergency || '',
     aadhaar4:p.aadhaar_last4 || '', docs:{aadhaar:p.aadhaar_path ? (url(p.aadhaar_path) || 'sample') : '', pan:p.pan_path ? (url(p.pan_path) || 'sample') : ''},
     consent:!!p.consent_at, ready:{profile:!!p.profile_ready, docs:!!p.docs_ready}}));
   next.projects = prods.map(p => ({id:p.id, name:p.name, format:p.format, platform:p.platform || '—', status:p.status, planned:p.planned_eps, done:0, block:'',
@@ -137,7 +155,9 @@ function friendly(m){
 }
 async function call(fn, args = {}, errId){
   try { return await DB.rpc(fn, args); }
-  catch (e){ const m = friendly(e.message); if (errId && document.getElementById(errId)) err(errId, m); else toast(m); return FAIL; }
+  catch (e){ const m = friendly(e.message);
+    if (/two-step login/.test(m)){ U.modal = {type:'mfa', then:U.modal}; renderLayer(); toast('Confirm it’s you first, then try again.'); return FAIL; }
+    if (errId && document.getElementById(errId)) err(errId, m); else toast(m); return FAIL; }
 }
 async function done(msg){ try { await reload(); } catch (e) { toast(friendly(e.message)); } render(); if (msg) toast(msg); }
 function dataUrlToBlob(d){ const [h, b] = d.split(','), bin = atob(b), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], {type:h.slice(5, h.indexOf(';'))}); }
@@ -225,14 +245,14 @@ Object.assign(FORMS, {
   deal: async () => { const rate = +v('ob-rate'); if (!(rate > 0)) return err('ob-err', 'Enter the rate in rupees.'); if (!v('ob-join')) return err('ob-err', 'Pick a joining date.');
     const n = await call('set_deal', {p_crew:U.modal.id, p:{rate, unit:v('ob-unit'), joining:v('ob-join'), end:v('ob-end'), tds:v('ob-tds'), terms:+v('ob-terms'), dept:v('ob-dept'), job:v('ob-job'), role:v('ob-role')}}, 'ob-err');
     if (n === FAIL) return; U.modal = null; done(n ? `Deal saved · ${n} change${n > 1 ? 's' : ''} logged` : 'No changes'); },
-  profile: async () => { const pan = v('pf-pan').toUpperCase(), gstin = v('pf-gstin').toUpperCase(), ifsc = v('pf-ifsc').toUpperCase(), acct = v('pf-acct').replace(/\s/g, '');
+  profile: async () => { if (v('pf-imdb') && !IMDB_RE.test(v('pf-imdb'))) return err('pf-err', 'Paste your IMDb page link, like https://www.imdb.com/name/nm1234567'); const pan = v('pf-pan').toUpperCase(), gstin = v('pf-gstin').toUpperCase(), ifsc = v('pf-ifsc').toUpperCase(), acct = v('pf-acct').replace(/\s/g, '');
     if (!v('pf-legal')) return err('pf-err', 'Enter your legal name as it appears on your PAN.');
     if (!PAN_RE.test(pan)) return err('pf-err', 'PAN is 10 characters: 5 letters, 4 numbers, 1 letter (like ABCDE1234F).');
     if (gstin && !GSTIN_RE.test(gstin)) return err('pf-err', 'GSTIN is 15 characters, like 27ABCDE1234F1Z5. Leave it empty if you aren’t registered.');
     if (gstin && gstin.slice(2, 12) !== pan) return err('pf-err', 'Your GSTIN must contain your PAN (characters 3 to 12).');
     if (!v('pf-addr')) return err('pf-err', 'Enter your address.'); if (!v('pf-holder')) return err('pf-err', 'Enter the account holder’s name.');
     if (!ACCT_RE.test(acct)) return err('pf-err', 'Account numbers are 9 to 18 digits.'); if (!IFSC_RE.test(ifsc)) return err('pf-err', 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers.');
-    if (await call('save_profile', {p:{legal:v('pf-legal'), phone:v('pf-phone'), emergency:v('pf-emer'), address:v('pf-addr'), pan, gstin, bank_holder:v('pf-holder'), bank_name:v('pf-bank'), bank_account:acct, bank_ifsc:ifsc}}, 'pf-err') === FAIL) return;
+    if (await call('save_profile', {p:{legal:v('pf-legal'), phone:v('pf-phone'), emergency:v('pf-emer'), address:v('pf-addr'), pan, gstin, bank_holder:v('pf-holder'), bank_name:v('pf-bank'), bank_account:acct, bank_ifsc:ifsc, imdb:v('pf-imdb')}}, 'pf-err') === FAIL) return;
     if (U.modal?.type === 'profile') U.modal = null; done('Details saved'); },
   docs: async () => { if (await call('save_documents', {p_aadhaar4:v('dc-a4'), p_consent:$('#dc-consent').checked}, 'dc-err') === FAIL) return; if (U.modal?.type === 'profile') U.modal = null; done('Documents saved'); },
   sign: async () => { const m = memberIn(U.pid, S.session), name = v('sg-name');
@@ -302,6 +322,33 @@ Object.assign(FORMS, {
 });
 
 /* ---------------------------------------------------------------- screens that differ from the demo */
+/* ---------------------------------------------------------------- two-step login (Supabase MFA, authenticator app) */
+async function refreshMfa(){
+  try { const st = await DB.auth.mfa.status(), me_ = S.users.find(u => u.id === S.session);
+    U.mfaInfo = {...st, needed:!!me_ && (['cfo','commercial'].includes(me_.title) || S.members.some(m => m.userId === S.session && m.role === 'accounts' && !m.removed)), enroll:U.mfaInfo?.enroll || null}; }
+  catch { U.mfaInfo = {aal:'aal1', factor:null, needed:false}; }
+}
+function mfaState(){ return U.mfaInfo || {aal:'aal1', factor:null, needed:false}; }
+Object.assign(ACT, {
+  'mfa-start': async () => { try { U.mfaInfo = {...mfaState(), enroll:await DB.auth.mfa.enroll()}; renderLayer(); setTimeout(() => $('#mf-code')?.focus(), 50); } catch (e) { err('mf-err', friendly(e.message)); } },
+  'mfa-off': async () => { const st = mfaState(); if (st.needed) return err('mf-err', 'Your role needs two-step login, so it stays on.');
+    try { await DB.auth.mfa.remove(st.factor); await refreshMfa(); U.modal = null; done('Two-step login turned off'); } catch (e) { err('mf-err', friendly(e.message)); } },
+  'phone-mode': () => { U.auth = 'phone'; render(); setTimeout(() => $('#ph-num')?.focus(), 50); },
+});
+Object.assign(FORMS, {
+  mfa: async () => { const c = v('mf-code').replace(/\s/g, ''), st = mfaState(); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
+    try { await DB.auth.mfa.verify(st.enroll?.id || st.factor, c); } catch (e) { return err('mf-err', /invalid|expired/i.test(e.message) ? 'That code didn’t match. Check the time on your phone is set automatically, and use the newest code.' : friendly(e.message)); }
+    U.mfaInfo = {...st, enroll:null}; await refreshMfa(); const back = U.modal?.then || null; U.modal = back; done(st.enroll ? 'Two-step login is on' : 'Confirmed. Carry on.'); },
+  phone1: async () => { const n = phoneE164(v('ph-num')); if (!n) return err('ph-err', 'Enter your 10-digit mobile number.');
+    try { await DB.auth.phoneStart(n); U.phoneTo = n; U.auth = 'phone2'; render(); setTimeout(() => $('#ph-code')?.focus(), 50); } catch (e) { err('ph-err', friendly(e.message)); } },
+  phone2: async () => { const c = v('ph-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('ph-err', 'Enter the 6-digit code from the SMS.');
+    try { await DB.auth.phoneVerify(U.phoneTo, c); U.auth = 'in'; } catch (e) { err('ph-err', /invalid|expired/i.test(e.message) ? 'That code didn’t match or has expired. Send a new one.' : friendly(e.message)); } },
+});
+// +91 for a 10-digit Indian mobile; full international numbers as typed
+function phoneE164(t){ const d = String(t || '').replace(/[^\d+]/g, '');
+  if (/^[6-9]\d{9}$/.test(d)) return '+91' + d; if (/^91[6-9]\d{9}$/.test(d)) return '+' + d; if (/^0[6-9]\d{9}$/.test(d)) return '+91' + d.slice(1);
+  return /^\+\d{10,15}$/.test(d) ? d : ''; }
+
 function loginView(){
   const mode = U.auth || 'in';
   const tabs = `<div class="tabs" role="group" aria-label="Sign in or create account"><button data-act="auth" data-id="in" aria-pressed="${mode === 'in'}">Sign in</button><button data-act="auth" data-id="signup" aria-pressed="${mode === 'signup'}">Create account</button></div>`;
@@ -317,20 +364,28 @@ function loginView(){
       <p class="err" id="fp-err"></p><div class="row"><button class="btn primary" type="submit">Send reset link</button><button class="btn ghost" type="button" data-act="auth" data-id="in">Back to sign in</button></div></form>`;
   else if (mode === 'sent') form = `<div class="stack"><h2>Check your email</h2><p>We sent a link to <b>${esc(U.sentTo || '')}</b>. ${U.sentWhat === 'reset' ? 'Open it to choose a new password.' : 'Open it to confirm your account, then sign in here.'}</p>
       <p class="small muted">Nothing there after a few minutes? Check spam, or try again.</p><button class="btn" data-act="auth" data-id="in" style="justify-self:start">Back to sign in</button></div>`;
+  else if (mode === 'phone') form = `<form class="stack" data-form="phone1"><h2>Sign in with your mobile</h2>
+      <div class="phonerow"><span class="cc">+91</span><label class="f">Mobile number<input type="tel" id="ph-num" autocomplete="tel-national" inputmode="numeric" placeholder="98200 00000" value="${esc(U.phoneTo ? U.phoneTo.replace(/^\+91/, '') : '')}"></label></div>
+      <p class="small muted">We text you a 6-digit code. New here? This creates your account; use the number your Line Producer invited.</p>
+      <p class="err" id="ph-err"></p><div class="row"><button class="btn primary" type="submit">Send code</button><button class="btn ghost" type="button" data-act="auth" data-id="in">Back</button></div></form>`;
+  else if (mode === 'phone2') form = `<form class="stack" data-form="phone2"><h2>Enter the code</h2><p>Sent by SMS to <b>${esc(U.phoneTo || '')}</b>.</p>
+      <label class="f">6-digit code<input type="text" id="ph-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="mono" style="letter-spacing:.3em;font-size:20px"></label>
+      <p class="err" id="ph-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost" type="button" data-act="phone-mode">Send a new code</button></div></form>`;
   else form = `<form class="stack" data-form="login"><h2>Sign in</h2>
       <label class="f">Username or email<input type="text" id="li-user" autocomplete="username"></label>
       <label class="f">Password<input type="password" id="li-pass" autocomplete="current-password"></label>
       <p class="err" id="li-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button></div></form>`;
   const gbtn = t => `<button class="btn gbtn" type="button" data-act="google">${GOOGLE_G}${t}</button>`;
+  const pbtn = U.phoneOn && ['in','signup'].includes(mode) ? `<button class="btn" type="button" data-act="phone-mode" style="width:100%">${icon('chat', 17)}${mode === 'signup' ? 'Sign up with your mobile number' : 'Sign in with your mobile number'}</button>` : '';
   // with Google switched on it is the main way in; the password form folds away (and stays open once used)
   let main;
-  if (U.google && ['in','signup'].includes(mode)) main = `<div class="stack gcard"><h2>${mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}
+  if (U.google && ['in','signup'].includes(mode)) main = `<div class="stack gcard"><h2>${mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}${pbtn}
       <p class="small muted">${mode === 'signup' ? 'Your name and email come from Google. No password, no confirmation email.' : 'One tap with your Gmail. New here? This creates your account too.'} Use the Gmail your Line Producer invited, if they used one.</p></div>
     <details class="pwbox" ${U.pwOpen ? 'open' : ''}><summary>${mode === 'signup' ? 'No Gmail? Create an account with a username and password' : 'Use a username and password instead'}</summary>${form.replace(/<h2>[^<]*<\/h2>/, '').replace('<button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button>', '')}</details>
     ${mode === 'in' ? '<button class="btn ghost sm" type="button" data-act="forgot" style="justify-self:start">Forgot password?</button>' : ''}`;
   else if (U.google && mode === 'forgot') main = `${form}<div class="or"><span>or skip the email</span></div>${gbtn('Sign in with Google instead')}
       <p class="small muted">If your account uses a Gmail address, sign in with that Google account: you’re straight back in, with all your details. Then set a new password from your name menu if you want one.</p>`;
-  else main = form;
+  else main = pbtn && !U.google ? form.replace('</form>', `<div class="or"><span>or</span></div>${pbtn}</form>`) : form;
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
     <div class="row" style="gap:10px"><span class="brand" style="color:inherit"><i style="background:var(--accent-ink);color:var(--accent)">CD</i><span>CrewDesk</span></span></div>
@@ -468,7 +523,7 @@ async function boot(){
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
     S.session = u?.id || null;
-    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id);
+    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); await refreshMfa();
       // the first time someone signs in, show them the welcome video for their role (once, on any device)
       try { if (!U.modal && !(await DB.rpc('tour_status'))){ U.modal = {type:'welcome'}; DB.rpc('tour_done').catch(() => {}); } } catch {} }
     else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], tasks:[], unlocks:[], session:null}; }
@@ -480,7 +535,7 @@ async function boot(){
     if (event === 'SIGNED_IN' && u?.id === S.session) return;
     if (['SIGNED_IN','SIGNED_OUT','PASSWORD_RECOVERY','USER_UPDATED'].includes(event)) enter(u);
   });
-  DB.auth.providers?.().then(x => { if (U.google === !!x.google) return; U.google = !!x.google; if (!S.session) render(); });
+  DB.auth.providers?.().then(x => { if (U.google === !!x.google && U.phoneOn === !!x.phone) return; U.google = !!x.google; U.phoneOn = !!x.phone; if (!S.session) render(); });
   await enter(await DB.auth.current());
   // pick up other people's changes when someone comes back to the tab
   addEventListener('focus', () => { if (S.session && !U.modal && !document.activeElement?.matches('input,textarea,select')) reload().then(render, () => {}); });

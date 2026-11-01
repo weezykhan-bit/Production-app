@@ -12,3 +12,10 @@ grant usage on schema public to anon, authenticated;
 alter default privileges in schema public grant all on tables    to anon, authenticated;
 alter default privileges in schema public grant all on functions to anon, authenticated;
 alter default privileges in schema public grant all on sequences to anon, authenticated;
+-- Supabase Vault (secrets kept apart from the tables) and the phone column of auth.users
+create schema if not exists vault;
+create table if not exists vault.secrets (id uuid primary key default gen_random_uuid(), name text unique, secret text, description text);
+create or replace view vault.decrypted_secrets as select id, name, secret as decrypted_secret, description from vault.secrets;
+create or replace function vault.create_secret(new_secret text, new_name text, new_description text default '') returns uuid language sql
+  as $$ insert into vault.secrets (name, secret, description) values (new_name, new_secret, new_description) returning id $$;
+alter table auth.users add column if not exists phone text;

@@ -94,6 +94,7 @@ const I = {
   down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', cash:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
 };
 const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const IMDB_RE = /^https:\/\/(www\.|m\.)?imdb\.com\/name\/nm[0-9]{5,10}\/?$/;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/, IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/, ACCT_RE = /^\d{9,18}$/, GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 async function sha256(t){ try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch { return 'unavailable in this browser'; } }
 
@@ -341,7 +342,8 @@ const dayPending = d => datePending(d.pid, d.date);
 const dayEditable = (d, r = myRole()) => !dayLocked(d) || can.grantUnlock(r) || !!dayUnlock(d);
 const pendingRemoval = m => (S.removals || []).find(q => q.memberId === m.id && q.status === 'pending');
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
-const profileDone = u => !!(u.legal && PAN_RE.test(u.pan || '') && u.address && u.bank?.holder && ACCT_RE.test(u.bank?.acct || '') && IFSC_RE.test(u.bank?.ifsc || ''));
+// the live app gets this from the server (bank and PAN arrive masked until two-step login); the demo checks the fields
+const profileDone = u => u.ready ? !!u.ready.profile : !!(u.legal && PAN_RE.test(u.pan || '') && u.address && u.bank?.holder && ACCT_RE.test(u.bank?.acct || '') && IFSC_RE.test(u.bank?.ifsc || ''));
 const docsDone = u => !!(u.docs?.aadhaar && u.docs?.pan && u.consent && /^\d{4}$/.test(u.aadhaar4 || ''));
 function stageOf(m){
   const u = user(m.userId), s = m.ag?.status || 'none';
@@ -412,6 +414,8 @@ function todos(pid, uidv){
     const td = S.days.find(d => d.pid === pid && d.date === today() && d.status !== 'cancelled');
     if (td && !costsOf(pid).some(c => c.date === today())) out.push({t:'Enter today’s costs', s:'Type them in or import the Excel template · the day locks after tomorrow', act:'cdate', id:today(), b:'Open'});
   }
+  if (uidv === S.session){ const st = mfaState();
+    if (st.needed && st.aal !== 'aal2') out.unshift({t:st.factor ? 'Confirm it’s you with two-step login' : 'Turn on two-step login', s:'Needed before you pay, send to Tally, approve agreements or change deals', act:'mfa', id:'', b:st.factor ? 'Confirm' : 'Set up'}); }
   if (can.pay(r)){
     invs.filter(i => i.status === 'approved').forEach(i => out.push({t:`Pay ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · approved, waiting for payment`, act:'pay', id:i.id, b:'Mark paid'}));
   }
@@ -488,7 +492,7 @@ function topBar(){
     ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
     <span class="grow"></span>
     <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
-    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="help">How to use CrewDesk</button><button data-act="reset">Reset demo data</button><button data-act="logout">Sign out</button></div>` : ''}
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="mfa">Two-step login${mfaState().aal === 'aal2' ? ' · on' : ''}</button><button data-act="help">How to use CrewDesk</button><button data-act="reset">Reset demo data</button><button data-act="logout">Sign out</button></div>` : ''}
   </header>`;
 }
 
@@ -664,6 +668,7 @@ function profileForm(u){
     <label class="f">Mobile<input type="tel" id="pf-phone" value="${esc(u.phone)}"></label></div>
     <div class="grid2"><label class="f">Email<input type="email" id="pf-email" value="${esc(u.email)}"></label><label class="f">Emergency contact<input type="text" id="pf-emer" value="${esc(u.emergency)}" placeholder="Name · number"></label></div>
     <label class="f">Address<textarea id="pf-addr" rows="2">${esc(u.address)}</textarea></label>
+    <label class="f">IMDb page <span class="hint">optional · lets the production office see your credits</span><input type="url" id="pf-imdb" value="${esc(u.imdb || '')}" placeholder="https://www.imdb.com/name/nm1234567"></label>
     <div class="grid2"><label class="f">PAN<input type="text" id="pf-pan" value="${esc(u.pan)}" maxlength="10" placeholder="ABCDE1234F" class="mono"></label>
     <label class="f">GSTIN <span class="hint">only if registered</span><input type="text" id="pf-gstin" value="${esc(u.gstin)}" maxlength="15" class="mono"></label></div>
     <p class="eyebrow" style="margin-top:4px">Bank account for payments</p>
@@ -1101,6 +1106,27 @@ function costForm(){
   if (mode === 'petty' && !val('ca-holder')) return err('ca-err', 'Say whose petty cash paid this.');
   return {date:U.cdate || today(), head, item:val('ca-item'), descr:'', payee:val('ca-payee'), qty:q, rate:rt, amount:amt, mode, holder:mode === 'petty' ? val('ca-holder') : null, bill:val('ca-bill'), notes:''};
 }
+// two-step login. The demo pretends; the live app (src/live.js) uses Supabase's authenticator-app login.
+function mfaState(){
+  const u = me(); if (!u) return {needed:false, aal:'aal1'};
+  return {needed:isOwner(u.title) || S.members.some(m => m.userId === u.id && m.role === 'accounts'), factor:u.mfaOn ? 'demo' : null, aal:u.mfaOn && U.mfaAal ? 'aal2' : 'aal1', enroll:U.mfaEnroll || null};
+}
+const DEMO_QR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges"><rect width="21" height="21" fill="#fff"/><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z" fill="#111"/><path d="M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z" fill="#fff"/><path d="M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2zM9 1h1v2H9zM11 3h2v1h-2zM8 8h2v2H8zM12 9h3v1h-3zM9 12h1v3H9zM14 14h2v2h-2zM17 12h2v1h-2zM12 17h3v2h-3zM18 17h2v3h-2z" fill="#111"/></svg>');
+function mfaBody(){
+  const st = mfaState(), close = `<button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button>`;
+  const why = st.needed ? 'Your role moves money, so CrewDesk asks for it before you pay, send to Tally, approve agreements, change deals or see full bank and PAN numbers.' : 'Optional for your role, and recommended.';
+  const codeForm = (label, btn) => `<form class="stack" data-form="mfa"><label class="f">${label}<input type="text" id="mf-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="mono" style="letter-spacing:.3em;font-size:20px"></label>
+      <p class="err" id="mf-err"></p><div class="row"><button class="btn primary" type="submit">${btn}</button><button class="btn ghost" type="button" data-act="close-modal">Not now</button></div></form>`;
+  let body;
+  if (st.enroll) body = `<ol class="steps small"><li>Open an authenticator app on your phone: Google Authenticator, Microsoft Authenticator or Authy.</li><li>Scan this code, or type the key below.</li><li>Enter the 6-digit code the app shows.</li></ol>
+    <div class="qrbox"><img src="${st.enroll.qr}" alt="QR code for your authenticator app" width="180" height="180"><code class="mono">${esc(st.enroll.secret)}</code></div>${codeForm('6-digit code from the app', 'Turn on')}`;
+  else if (!st.factor) body = `<p>${why}</p><p class="small muted">Each sign-in on a new device or after 7 days asks for a 6-digit code from an app on your phone. Nobody else can approve payments with only your password.</p>
+    <p class="err" id="mf-err"></p><div class="row"><button class="btn primary" data-act="mfa-start">${icon('lock', 16)}Set up two-step login</button><button class="btn ghost" data-act="close-modal">Not now</button></div>`;
+  else if (st.aal !== 'aal2') body = `<p>${why}</p>${codeForm('Code from your authenticator app', 'Confirm')}<p class="small muted">Lost your phone? Another owner or the CrewDesk administrator can reset it.</p>`;
+  else body = `<p class="okline">${icon('check', 16)}<span><b>Two-step login is on.</b> You’re confirmed on this device.</span></p><p class="small muted">${why}</p>
+    <p class="err" id="mf-err"></p><div class="row"><button class="btn ghost" data-act="mfa-off">Turn it off</button><button class="btn" data-act="close-modal">Done</button></div>`;
+  return `<div class="spread"><h2>Two-step login</h2>${close}</div>${body}`;
+}
 function costImportBody(M){
   const bad = M.rows.filter(r => r.errs.length), good = M.rows.filter(r => !r.errs.length), tot = good.reduce((s, r) => s + r.amount, 0);
   const byDate = {}; good.forEach(r => byDate[r.date] = (byDate[r.date] || 0) + r.amount);
@@ -1402,7 +1428,8 @@ function personDrawer(m){
   </div>
   ${removalPanel(m)}
   <section class="panel"><h3>Deal</h3><dl class="dl"><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label || '—')}</dd><dt>Payment terms</dt><dd>${m.terms} days after approval</dd><dt>App access</dt><dd>${ROLES[m.role].label}</dd></dl></section>
-  <section class="panel"><h3>Profile & bank</h3>${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
+  ${u.imdb ? `<p><a class="helplink" href="${esc(u.imdb)}" target="_blank" rel="noopener noreferrer">${icon('share', 15)}IMDb credits</a></p>` : ''}
+  <section class="panel"><h3>Profile & bank</h3>${kyc && u.kycMasked ? `<p class="lockline">${icon('lock', 16)}<span>PAN and bank account show the last 4 digits only. <a href="#" data-act="mfa">Confirm it’s you with two-step login</a> to see them in full.</span></p>` : ''}${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
     <dt>PAN</dt><dd class="mono">${esc(u.pan || '—')}</dd><dt>GSTIN</dt><dd class="mono">${esc(u.gstin || 'Not registered')}</dd><dt>Aadhaar</dt><dd class="mono">${u.aadhaar4 ? 'XXXX XXXX ' + esc(u.aadhaar4) : '—'}</dd><dt>Bank</dt><dd>${esc(bankLine(u))}</dd><dt>Emergency</dt><dd>${esc(u.emergency || '—')}</dd></dl>`
     : `<dl class="dl"><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>PAN</dt><dd class="mono">${mask(u.pan)}</dd><dt>Bank</dt><dd class="mono">${mask(u.bank?.acct)}</dd></dl><p class="small muted">Full KYC and bank details are visible to the CFO, Commercial Head and Accounts.</p>`}</section>
   ${kyc ? `<section class="panel"><h3>Documents</h3><div class="docs"><div class="doc"><b>Masked Aadhaar</b>${prev('aadhaar', 'Aadhaar')}</div><div class="doc"><b>PAN card</b>${prev('pan', 'PAN card')}</div></div>${u.consent ? '<p class="small muted">Consent to keep copies: given.</p>' : '<p class="small" style="color:var(--warn)">Consent not given yet.</p>'}</section>` : ''}
@@ -1498,6 +1525,7 @@ function modalBody(){
       <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'costimport') return costImportBody(M);
+  if (M.type === 'mfa') return mfaBody();
   if (M.type === 'float'){
     const ppl = S.members.filter(m => m.pid === U.pid && !m.removed && !m.pending && !m.synthetic && isStaff(m.role));
     return `${head('Give petty cash', 'The holder is told, and what they pay from it comes off their balance')}
@@ -1759,6 +1787,9 @@ const ACT = {
   'att-confirm': el => { const d = S.days.find(x => x.id === el.dataset.id); if (!d || !can.confirmAtt(myRole())) return;
     Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
   'inv-doc': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.'); const w = window.open(); if (w) w.document.write(`<iframe src="${i.doc}" style="border:0;width:100%;height:100vh"></iframe>`); },
+  mfa: () => { U.menu = false; U.modal = {type:'mfa'}; render(); },
+  'mfa-start': () => { U.mfaEnroll = {qr:DEMO_QR, secret:'JBSW Y3DP EHPK 3PXP'}; renderLayer(); setTimeout(() => $('#mf-code')?.focus(), 50); },
+  'mfa-off': () => { const u = me(); if (mfaState().needed) return err('mf-err', 'Your role needs two-step login, so it stays on.'); u.mfaOn = false; U.mfaAal = null; U.modal = null; done('Two-step login turned off'); },
   'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id || null, date:el.dataset.date || S.days.find(x => x.id === el.dataset.id)?.date}; renderLayer(); },
   cdate: el => { U.cdate = el.dataset.id; U.view = 'costs'; U.drawer = null; render(); },
   'cost-template': () => costTemplate(),
@@ -1878,8 +1909,9 @@ const FORMS = {
     if (!val('pf-holder')) return err('pf-err', 'Enter the account holder’s name.');
     if (!ACCT_RE.test(acct)) return err('pf-err', 'Account numbers are 9 to 18 digits.');
     if (!IFSC_RE.test(ifsc)) return err('pf-err', 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers (like HDFC0001234).');
+    if (val('pf-imdb') && !IMDB_RE.test(val('pf-imdb'))) return err('pf-err', 'Paste your IMDb page link, like https://www.imdb.com/name/nm1234567');
     const wasDone = profileDone(u);
-    Object.assign(u, {legal:val('pf-legal'), phone:val('pf-phone'), email:val('pf-email') || u.email, emergency:val('pf-emer'), address:val('pf-addr'), pan, gstin, bank:{holder:val('pf-holder'), name:val('pf-bank'), acct, ifsc}});
+    Object.assign(u, {imdb:val('pf-imdb'), legal:val('pf-legal'), phone:val('pf-phone'), email:val('pf-email') || u.email, emergency:val('pf-emer'), address:val('pf-addr'), pan, gstin, bank:{holder:val('pf-holder'), name:val('pf-bank'), acct, ifsc}});
     S.members.filter(m => m.userId === u.id).forEach(m => log(m.pid, 'profile', wasDone ? 'Updated profile and bank details' : 'Completed profile and bank details', {memberId:m.id}));
     if (U.modal?.type === 'profile') U.modal = null; done('Details saved'); },
   docs: () => { const u = me(), a4 = val('dc-a4');
@@ -1921,6 +1953,8 @@ const FORMS = {
     if (!U.modal.yes && note.length < 4) return err('ud-err', 'Say why, so the person who asked knows.');
     Object.assign(q, U.modal.yes ? {status:'approved', decidedBy:S.session, decidedAt:Date.now(), expiresAt:Date.now() + 864e5, note} : {status:'declined', decidedBy:S.session, decidedAt:Date.now(), note});
     log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
+  mfa: () => { const c = val('mf-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
+    const u = me(); u.mfaOn = true; U.mfaAal = 'aal2'; U.mfaEnroll = null; U.modal = null; done('Two-step login is on for this session'); },
   audit: () => ACT['inv-step']({dataset:{id:U.modal.id, head:val('au-head')}}),
   costadd: () => { const c = costForm(); if (!c) return;
     (S.costs ||= []).push({id:uid('c'), pid:U.pid, ...c, source:'manual', batch:null, by:S.session, at:Date.now()}); U.chead = c.head; U.cmode = c.mode;

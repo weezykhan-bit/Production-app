@@ -529,6 +529,15 @@ label.f.datepick input{min-width:160px;font-variant-numeric:tabular-nums}
 table.costs td{vertical-align:top}
 table.costs tr.rowbad td{background:var(--bad-soft)}
 .warnc{color:var(--marigold);font-weight:600}
+/* two-step login */
+.qrbox{display:grid;justify-items:center;gap:10px;padding:16px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2)}
+.qrbox img{width:180px;height:180px;background:#fff;padding:8px;border-radius:10px;image-rendering:pixelated}
+.qrbox code{font-size:13px;letter-spacing:.08em;word-break:break-all;text-align:center}
+ol.steps{margin:0;padding-left:20px;display:grid;gap:4px}
+.phonerow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:end}
+.phonerow .cc{padding:0 12px;height:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font-weight:600}
+/* the 1px press nudge on buttons made Chrome's scroll anchoring jump a scrolled pop-up mid-tap, so taps on phones missed */
+.dialog,.drawer{overflow-anchor:none}
 </style>
 
 </head><body>

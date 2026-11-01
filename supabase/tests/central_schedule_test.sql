@@ -35,7 +35,7 @@ select ok(exists (select 1 from notifications where user_id = :'imran' and kind 
 -- profiles change only through the checked functions
 select as_user(:'imran'); set role authenticated;
 update profiles set bank_account = '111111111111', aadhaar_path = 'x/y.jpg' where id = :'imran';
-select ok((select bank_account from profiles where id = :'imran') = '917010023456789', 'a profile can’t be edited directly through the API');
+select ok((select bank_tail = '6789' and aadhaar_path is distinct from 'x/y.jpg' from profiles where id = :'imran'), 'a profile can’t be edited directly through the API');
 select save_profile('{"legal":"Imran Shaikh","pan":"FHSPS3349D","address":"Jogeshwari, Mumbai","bank_holder":"Imran Shaikh","bank_name":"HDFC","bank_account":"50100223344556","bank_ifsc":"HDFC0000123","phone":"9930018842"}');
 reset role;
 select ok(exists (select 1 from activity where text like 'Changed bank account: ••6789 (UTIB0000071) → ••4556 (HDFC0000123)%'), 'a bank change is logged with old and new');

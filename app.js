@@ -95,6 +95,7 @@ const I = {
   down:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>', cash:'<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v.01M18 14.5v.01"/>', share:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.9l7.6-4.6M8.2 13.1l7.6 4.6"/>',
 };
 const icon = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const IMDB_RE = /^https:\/\/(www\.|m\.)?imdb\.com\/name\/nm[0-9]{5,10}\/?$/;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/, IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/, ACCT_RE = /^\d{9,18}$/, GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 async function sha256(t){ try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''); } catch { return 'unavailable in this browser'; } }
 
@@ -158,6 +159,7 @@ const dayPending = d => datePending(d.pid, d.date);
 const dayEditable = (d, r = myRole()) => !dayLocked(d) || can.grantUnlock(r) || !!dayUnlock(d);
 const pendingRemoval = m => (S.removals || []).find(q => q.memberId === m.id && q.status === 'pending');
 function log(pid, type, text, extra = {}){ S.log.unshift({id:uid('l'), at:Date.now(), by:S.session, pid, type, text, ...extra}); }
+// the live app gets this from the server (bank and PAN arrive masked until two-step login); the demo checks the fields
 const profileDone = u => !!u?.ready?.profile;
 const docsDone = u => !!u?.ready?.docs;
 function stageOf(m){
@@ -230,6 +232,8 @@ function todos(pid, uidv){
     const td = S.days.find(d => d.pid === pid && d.date === today() && d.status !== 'cancelled');
     if (td && !costsOf(pid).some(c => c.date === today())) out.push({t:'Enter today’s costs', s:'Type them in or import the Excel template · the day locks after tomorrow', act:'cdate', id:today(), b:'Open'});
   }
+  if (uidv === S.session){ const st = mfaState();
+    if (st.needed && st.aal !== 'aal2') out.unshift({t:st.factor ? 'Confirm it’s you with two-step login' : 'Turn on two-step login', s:'Needed before you pay, send to Tally, approve agreements or change deals', act:'mfa', id:'', b:st.factor ? 'Confirm' : 'Set up'}); }
   if (can.pay(r)){
     invs.filter(i => i.status === 'approved').forEach(i => out.push({t:`Pay ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · approved, waiting for payment`, act:'pay', id:i.id, b:'Mark paid'}));
   }
@@ -306,7 +310,7 @@ function topBar(){
     ${U.pid ? `<select class="proj" data-change="switch-project" aria-label="Production">${mine.map(m => `<option value="${m.pid}" ${m.pid === U.pid ? 'selected' : ''}>${esc(proj(m.pid).name)}</option>`).join('')}<option value="">All productions…</option></select>` : ''}
     <span class="grow"></span>
     <button class="me" data-act="menu" aria-haspopup="true" aria-expanded="${U.menu}">${av(u)}<span class="who"><b>${esc(u.name)}</b><small>${esc(ROLES[r]?.label || '')}</small></span></button>
-    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="help">How to use CrewDesk</button><button data-act="set-pass">Set or change password</button><button data-act="logout">Sign out</button></div>` : ''}
+    ${U.menu ? `<div class="menu" role="menu"><button data-act="go-projects">All productions</button>${isStaff(r) ? '<button data-act="go-company">Company details</button>' : ''}<button data-act="my-profile">My profile & documents</button><button data-act="mfa">Two-step login${mfaState().aal === 'aal2' ? ' · on' : ''}</button><button data-act="help">How to use CrewDesk</button><button data-act="set-pass">Set or change password</button><button data-act="logout">Sign out</button></div>` : ''}
   </header>`;
 }
 
@@ -482,6 +486,7 @@ function profileForm(u){
     <label class="f">Mobile<input type="tel" id="pf-phone" value="${esc(u.phone)}"></label></div>
     <div class="grid2"><label class="f">Email<input type="email" id="pf-email" value="${esc(u.email)}"></label><label class="f">Emergency contact<input type="text" id="pf-emer" value="${esc(u.emergency)}" placeholder="Name · number"></label></div>
     <label class="f">Address<textarea id="pf-addr" rows="2">${esc(u.address)}</textarea></label>
+    <label class="f">IMDb page <span class="hint">optional · lets the production office see your credits</span><input type="url" id="pf-imdb" value="${esc(u.imdb || '')}" placeholder="https://www.imdb.com/name/nm1234567"></label>
     <div class="grid2"><label class="f">PAN<input type="text" id="pf-pan" value="${esc(u.pan)}" maxlength="10" placeholder="ABCDE1234F" class="mono"></label>
     <label class="f">GSTIN <span class="hint">only if registered</span><input type="text" id="pf-gstin" value="${esc(u.gstin)}" maxlength="15" class="mono"></label></div>
     <p class="eyebrow" style="margin-top:4px">Bank account for payments</p>
@@ -919,6 +924,27 @@ function costForm(){
   if (mode === 'petty' && !val('ca-holder')) return err('ca-err', 'Say whose petty cash paid this.');
   return {date:U.cdate || today(), head, item:val('ca-item'), descr:'', payee:val('ca-payee'), qty:q, rate:rt, amount:amt, mode, holder:mode === 'petty' ? val('ca-holder') : null, bill:val('ca-bill'), notes:''};
 }
+// two-step login. The demo pretends; the live app (src/live.js) uses Supabase's authenticator-app login.
+function mfaState(){
+  const u = me(); if (!u) return {needed:false, aal:'aal1'};
+  return {needed:isOwner(u.title) || S.members.some(m => m.userId === u.id && m.role === 'accounts'), factor:u.mfaOn ? 'demo' : null, aal:u.mfaOn && U.mfaAal ? 'aal2' : 'aal1', enroll:U.mfaEnroll || null};
+}
+const DEMO_QR = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" shape-rendering="crispEdges"><rect width="21" height="21" fill="#fff"/><path d="M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z" fill="#111"/><path d="M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z" fill="#fff"/><path d="M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2zM9 1h1v2H9zM11 3h2v1h-2zM8 8h2v2H8zM12 9h3v1h-3zM9 12h1v3H9zM14 14h2v2h-2zM17 12h2v1h-2zM12 17h3v2h-3zM18 17h2v3h-2z" fill="#111"/></svg>');
+function mfaBody(){
+  const st = mfaState(), close = `<button class="btn ghost sm" data-act="close-modal" aria-label="Close">${icon('x', 16)}</button>`;
+  const why = st.needed ? 'Your role moves money, so CrewDesk asks for it before you pay, send to Tally, approve agreements, change deals or see full bank and PAN numbers.' : 'Optional for your role, and recommended.';
+  const codeForm = (label, btn) => `<form class="stack" data-form="mfa"><label class="f">${label}<input type="text" id="mf-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" class="mono" style="letter-spacing:.3em;font-size:20px"></label>
+      <p class="err" id="mf-err"></p><div class="row"><button class="btn primary" type="submit">${btn}</button><button class="btn ghost" type="button" data-act="close-modal">Not now</button></div></form>`;
+  let body;
+  if (st.enroll) body = `<ol class="steps small"><li>Open an authenticator app on your phone: Google Authenticator, Microsoft Authenticator or Authy.</li><li>Scan this code, or type the key below.</li><li>Enter the 6-digit code the app shows.</li></ol>
+    <div class="qrbox"><img src="${st.enroll.qr}" alt="QR code for your authenticator app" width="180" height="180"><code class="mono">${esc(st.enroll.secret)}</code></div>${codeForm('6-digit code from the app', 'Turn on')}`;
+  else if (!st.factor) body = `<p>${why}</p><p class="small muted">Each sign-in on a new device or after 7 days asks for a 6-digit code from an app on your phone. Nobody else can approve payments with only your password.</p>
+    <p class="err" id="mf-err"></p><div class="row"><button class="btn primary" data-act="mfa-start">${icon('lock', 16)}Set up two-step login</button><button class="btn ghost" data-act="close-modal">Not now</button></div>`;
+  else if (st.aal !== 'aal2') body = `<p>${why}</p>${codeForm('Code from your authenticator app', 'Confirm')}<p class="small muted">Lost your phone? Another owner or the CrewDesk administrator can reset it.</p>`;
+  else body = `<p class="okline">${icon('check', 16)}<span><b>Two-step login is on.</b> You’re confirmed on this device.</span></p><p class="small muted">${why}</p>
+    <p class="err" id="mf-err"></p><div class="row"><button class="btn ghost" data-act="mfa-off">Turn it off</button><button class="btn" data-act="close-modal">Done</button></div>`;
+  return `<div class="spread"><h2>Two-step login</h2>${close}</div>${body}`;
+}
 function costImportBody(M){
   const bad = M.rows.filter(r => r.errs.length), good = M.rows.filter(r => !r.errs.length), tot = good.reduce((s, r) => s + r.amount, 0);
   const byDate = {}; good.forEach(r => byDate[r.date] = (byDate[r.date] || 0) + r.amount);
@@ -1220,7 +1246,8 @@ function personDrawer(m){
   </div>
   ${removalPanel(m)}
   <section class="panel"><h3>Deal</h3><dl class="dl"><dt>Fee</dt><dd>${rateText(m)}</dd><dt>Joining</dt><dd>${fmtD(m.joining)}${m.end ? ' to ' + fmtD(m.end) : ''}</dd><dt>Tax deducted</dt><dd>${esc(TDS[m.tds]?.label || '—')}</dd><dt>Payment terms</dt><dd>${m.terms} days after approval</dd><dt>App access</dt><dd>${ROLES[m.role].label}</dd></dl></section>
-  <section class="panel"><h3>Profile & bank</h3>${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
+  ${u.imdb ? `<p><a class="helplink" href="${esc(u.imdb)}" target="_blank" rel="noopener noreferrer">${icon('share', 15)}IMDb credits</a></p>` : ''}
+  <section class="panel"><h3>Profile & bank</h3>${kyc && u.kycMasked ? `<p class="lockline">${icon('lock', 16)}<span>PAN and bank account show the last 4 digits only. <a href="#" data-act="mfa">Confirm it’s you with two-step login</a> to see them in full.</span></p>` : ''}${kyc ? `<dl class="dl"><dt>Legal name</dt><dd>${esc(u.legal || '—')}</dd><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>Email</dt><dd>${esc(u.email)}</dd><dt>Address</dt><dd>${esc(u.address || '—')}</dd>
     <dt>PAN</dt><dd class="mono">${esc(u.pan || '—')}</dd><dt>GSTIN</dt><dd class="mono">${esc(u.gstin || 'Not registered')}</dd><dt>Aadhaar</dt><dd class="mono">${u.aadhaar4 ? 'XXXX XXXX ' + esc(u.aadhaar4) : '—'}</dd><dt>Bank</dt><dd>${esc(bankLine(u))}</dd><dt>Emergency</dt><dd>${esc(u.emergency || '—')}</dd></dl>`
     : `<dl class="dl"><dt>Mobile</dt><dd>${esc(u.phone || '—')}</dd><dt>PAN</dt><dd class="mono">${mask(u.pan)}</dd><dt>Bank</dt><dd class="mono">${mask(u.bank?.acct)}</dd></dl><p class="small muted">Full KYC and bank details are visible to the CFO, Commercial Head and Accounts.</p>`}</section>
   ${kyc ? `<section class="panel"><h3>Documents</h3><div class="docs"><div class="doc"><b>Masked Aadhaar</b>${prev('aadhaar', 'Aadhaar')}</div><div class="doc"><b>PAN card</b>${prev('pan', 'PAN card')}</div></div>${u.consent ? '<p class="small muted">Consent to keep copies: given.</p>' : '<p class="small" style="color:var(--warn)">Consent not given yet.</p>'}</section>` : ''}
@@ -1316,6 +1343,7 @@ function modalBody(){
       <p class="err" id="rm-err"></p><div class="row"><button class="btn ${M.yes ? 'danger' : 'primary'}" type="submit">${M.yes ? 'Approve removal' : 'Keep them'}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'costimport') return costImportBody(M);
+  if (M.type === 'mfa') return mfaBody();
   if (M.type === 'float'){
     const ppl = S.members.filter(m => m.pid === U.pid && !m.removed && !m.pending && !m.synthetic && isStaff(m.role));
     return `${head('Give petty cash', 'The holder is told, and what they pay from it comes off their balance')}
@@ -1577,6 +1605,9 @@ const ACT = {
   'att-confirm': el => { const d = S.days.find(x => x.id === el.dataset.id); if (!d || !can.confirmAtt(myRole())) return;
     Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
   'inv-doc': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.'); const w = window.open(); if (w) w.document.write(`<iframe src="${i.doc}" style="border:0;width:100%;height:100vh"></iframe>`); },
+  mfa: () => { U.menu = false; U.modal = {type:'mfa'}; render(); },
+  'mfa-start': () => { U.mfaEnroll = {qr:DEMO_QR, secret:'JBSW Y3DP EHPK 3PXP'}; renderLayer(); setTimeout(() => $('#mf-code')?.focus(), 50); },
+  'mfa-off': () => { const u = me(); if (mfaState().needed) return err('mf-err', 'Your role needs two-step login, so it stays on.'); u.mfaOn = false; U.mfaAal = null; U.modal = null; done('Two-step login turned off'); },
   'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id || null, date:el.dataset.date || S.days.find(x => x.id === el.dataset.id)?.date}; renderLayer(); },
   cdate: el => { U.cdate = el.dataset.id; U.view = 'costs'; U.drawer = null; render(); },
   'cost-template': () => costTemplate(),
@@ -1696,8 +1727,9 @@ const FORMS = {
     if (!val('pf-holder')) return err('pf-err', 'Enter the account holder’s name.');
     if (!ACCT_RE.test(acct)) return err('pf-err', 'Account numbers are 9 to 18 digits.');
     if (!IFSC_RE.test(ifsc)) return err('pf-err', 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers (like HDFC0001234).');
+    if (val('pf-imdb') && !IMDB_RE.test(val('pf-imdb'))) return err('pf-err', 'Paste your IMDb page link, like https://www.imdb.com/name/nm1234567');
     const wasDone = profileDone(u);
-    Object.assign(u, {legal:val('pf-legal'), phone:val('pf-phone'), email:val('pf-email') || u.email, emergency:val('pf-emer'), address:val('pf-addr'), pan, gstin, bank:{holder:val('pf-holder'), name:val('pf-bank'), acct, ifsc}});
+    Object.assign(u, {imdb:val('pf-imdb'), legal:val('pf-legal'), phone:val('pf-phone'), email:val('pf-email') || u.email, emergency:val('pf-emer'), address:val('pf-addr'), pan, gstin, bank:{holder:val('pf-holder'), name:val('pf-bank'), acct, ifsc}});
     S.members.filter(m => m.userId === u.id).forEach(m => log(m.pid, 'profile', wasDone ? 'Updated profile and bank details' : 'Completed profile and bank details', {memberId:m.id}));
     if (U.modal?.type === 'profile') U.modal = null; done('Details saved'); },
   docs: () => { const u = me(), a4 = val('dc-a4');
@@ -1739,6 +1771,8 @@ const FORMS = {
     if (!U.modal.yes && note.length < 4) return err('ud-err', 'Say why, so the person who asked knows.');
     Object.assign(q, U.modal.yes ? {status:'approved', decidedBy:S.session, decidedAt:Date.now(), expiresAt:Date.now() + 864e5, note} : {status:'declined', decidedBy:S.session, decidedAt:Date.now(), note});
     log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
+  mfa: () => { const c = val('mf-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
+    const u = me(); u.mfaOn = true; U.mfaAal = 'aal2'; U.mfaEnroll = null; U.modal = null; done('Two-step login is on for this session'); },
   audit: () => ACT['inv-step']({dataset:{id:U.modal.id, head:val('au-head')}}),
   costadd: () => { const c = costForm(); if (!c) return;
     (S.costs ||= []).push({id:uid('c'), pid:U.pid, ...c, source:'manual', batch:null, by:S.session, at:Date.now()}); U.chead = c.head; U.cmode = c.mode;
@@ -1954,6 +1988,24 @@ async function liveDB(cfg){
         return { needsConfirm: !data.session };
       },
       usernameFree: async u => unwrap(await sb.rpc('username_available', { p_username: u })),
+      // a one-time code by SMS (Supabase phone sign-in, once an SMS provider is set up)
+      async phoneStart(phone){ unwrap(await sb.auth.signInWithOtp({ phone })); },
+      async phoneVerify(phone, token){ unwrap(await sb.auth.verifyOtp({ phone, token, type: 'sms' })); },
+      // two-step login with an authenticator app
+      mfa: {
+        async status(){
+          const a = unwrap(await sb.auth.mfa.getAuthenticatorAssuranceLevel()), f = unwrap(await sb.auth.mfa.listFactors());
+          return { aal: a?.currentLevel || 'aal1', factor: (f?.totp || []).find(x => x.status === 'verified')?.id || null };
+        },
+        async enroll(){
+          const f = unwrap(await sb.auth.mfa.listFactors());
+          for (const x of (f?.all || []).filter(x => x.factor_type === 'totp' && x.status !== 'verified')) await sb.auth.mfa.unenroll({ factorId: x.id });
+          const d = unwrap(await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'CrewDesk ' + new Date().toISOString().slice(0, 16) }));
+          return { id: d.id, qr: d.totp.qr_code, secret: d.totp.secret };
+        },
+        async verify(factorId, code){ unwrap(await sb.auth.mfa.challengeAndVerify({ factorId, code })); await sb.auth.refreshSession(); },
+        async remove(factorId){ unwrap(await sb.auth.mfa.unenroll({ factorId })); await sb.auth.refreshSession(); }
+      },
       async resetPassword(email){ unwrap(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname })); },
       async updatePassword(password){ unwrap(await sb.auth.updateUser({ password })); },
       async signOut(){ await sb.auth.signOut(); },
@@ -1983,8 +2035,8 @@ async function load(){
   const next = {session:S.session, admins:admins.map(a => ({userId:a.user_id, role:a.role}))};
   next.company = ci ? {...ci, setupAt:ts(ci.setupAt)} : null;
   next.users = people.map(p => ({id:p.id, username:p.username || '', name:p.full_name || p.username || 'Someone', title:adminOf[p.id] || 'crew', phone:p.phone || '', email:p.email || '',
-    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || '', gstin:p.gstin || '', address:p.address || '',
-    bank:{holder:p.bank_holder || '', name:p.bank_name || '', acct:p.bank_account || '', ifsc:p.bank_ifsc || ''}, emergency:p.emergency || '',
+    photo:url(p.photo_path), legal:p.legal_name || '', pan:p.pan || (p.pan_tail ? '••••••' + p.pan_tail : ''), imdb:p.imdb_url || '', kycMasked:!p.pan && !!(p.pan_tail || p.bank_tail), gstin:p.gstin || '', address:p.address || '',
+    bank:{holder:p.bank_holder || '', name:p.bank_name || '', acct:p.bank_account || (p.bank_tail ? '••••' + p.bank_tail : ''), ifsc:p.bank_ifsc || ''}, emergency:p.emergency || '',
     aadhaar4:p.aadhaar_last4 || '', docs:{aadhaar:p.aadhaar_path ? (url(p.aadhaar_path) || 'sample') : '', pan:p.pan_path ? (url(p.pan_path) || 'sample') : ''},
     consent:!!p.consent_at, ready:{profile:!!p.profile_ready, docs:!!p.docs_ready}}));
   next.projects = prods.map(p => ({id:p.id, name:p.name, format:p.format, platform:p.platform || '—', status:p.status, planned:p.planned_eps, done:0, block:'',
@@ -2037,7 +2089,9 @@ function friendly(m){
 }
 async function call(fn, args = {}, errId){
   try { return await DB.rpc(fn, args); }
-  catch (e){ const m = friendly(e.message); if (errId && document.getElementById(errId)) err(errId, m); else toast(m); return FAIL; }
+  catch (e){ const m = friendly(e.message);
+    if (/two-step login/.test(m)){ U.modal = {type:'mfa', then:U.modal}; renderLayer(); toast('Confirm it’s you first, then try again.'); return FAIL; }
+    if (errId && document.getElementById(errId)) err(errId, m); else toast(m); return FAIL; }
 }
 async function done(msg){ try { await reload(); } catch (e) { toast(friendly(e.message)); } render(); if (msg) toast(msg); }
 function dataUrlToBlob(d){ const [h, b] = d.split(','), bin = atob(b), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], {type:h.slice(5, h.indexOf(';'))}); }
@@ -2125,14 +2179,14 @@ Object.assign(FORMS, {
   deal: async () => { const rate = +v('ob-rate'); if (!(rate > 0)) return err('ob-err', 'Enter the rate in rupees.'); if (!v('ob-join')) return err('ob-err', 'Pick a joining date.');
     const n = await call('set_deal', {p_crew:U.modal.id, p:{rate, unit:v('ob-unit'), joining:v('ob-join'), end:v('ob-end'), tds:v('ob-tds'), terms:+v('ob-terms'), dept:v('ob-dept'), job:v('ob-job'), role:v('ob-role')}}, 'ob-err');
     if (n === FAIL) return; U.modal = null; done(n ? `Deal saved · ${n} change${n > 1 ? 's' : ''} logged` : 'No changes'); },
-  profile: async () => { const pan = v('pf-pan').toUpperCase(), gstin = v('pf-gstin').toUpperCase(), ifsc = v('pf-ifsc').toUpperCase(), acct = v('pf-acct').replace(/\s/g, '');
+  profile: async () => { if (v('pf-imdb') && !IMDB_RE.test(v('pf-imdb'))) return err('pf-err', 'Paste your IMDb page link, like https://www.imdb.com/name/nm1234567'); const pan = v('pf-pan').toUpperCase(), gstin = v('pf-gstin').toUpperCase(), ifsc = v('pf-ifsc').toUpperCase(), acct = v('pf-acct').replace(/\s/g, '');
     if (!v('pf-legal')) return err('pf-err', 'Enter your legal name as it appears on your PAN.');
     if (!PAN_RE.test(pan)) return err('pf-err', 'PAN is 10 characters: 5 letters, 4 numbers, 1 letter (like ABCDE1234F).');
     if (gstin && !GSTIN_RE.test(gstin)) return err('pf-err', 'GSTIN is 15 characters, like 27ABCDE1234F1Z5. Leave it empty if you aren’t registered.');
     if (gstin && gstin.slice(2, 12) !== pan) return err('pf-err', 'Your GSTIN must contain your PAN (characters 3 to 12).');
     if (!v('pf-addr')) return err('pf-err', 'Enter your address.'); if (!v('pf-holder')) return err('pf-err', 'Enter the account holder’s name.');
     if (!ACCT_RE.test(acct)) return err('pf-err', 'Account numbers are 9 to 18 digits.'); if (!IFSC_RE.test(ifsc)) return err('pf-err', 'IFSC is 11 characters: 4 letters, a zero, then 6 letters or numbers.');
-    if (await call('save_profile', {p:{legal:v('pf-legal'), phone:v('pf-phone'), emergency:v('pf-emer'), address:v('pf-addr'), pan, gstin, bank_holder:v('pf-holder'), bank_name:v('pf-bank'), bank_account:acct, bank_ifsc:ifsc}}, 'pf-err') === FAIL) return;
+    if (await call('save_profile', {p:{legal:v('pf-legal'), phone:v('pf-phone'), emergency:v('pf-emer'), address:v('pf-addr'), pan, gstin, bank_holder:v('pf-holder'), bank_name:v('pf-bank'), bank_account:acct, bank_ifsc:ifsc, imdb:v('pf-imdb')}}, 'pf-err') === FAIL) return;
     if (U.modal?.type === 'profile') U.modal = null; done('Details saved'); },
   docs: async () => { if (await call('save_documents', {p_aadhaar4:v('dc-a4'), p_consent:$('#dc-consent').checked}, 'dc-err') === FAIL) return; if (U.modal?.type === 'profile') U.modal = null; done('Documents saved'); },
   sign: async () => { const m = memberIn(U.pid, S.session), name = v('sg-name');
@@ -2202,6 +2256,33 @@ Object.assign(FORMS, {
 });
 
 /* ---------------------------------------------------------------- screens that differ from the demo */
+/* ---------------------------------------------------------------- two-step login (Supabase MFA, authenticator app) */
+async function refreshMfa(){
+  try { const st = await DB.auth.mfa.status(), me_ = S.users.find(u => u.id === S.session);
+    U.mfaInfo = {...st, needed:!!me_ && (['cfo','commercial'].includes(me_.title) || S.members.some(m => m.userId === S.session && m.role === 'accounts' && !m.removed)), enroll:U.mfaInfo?.enroll || null}; }
+  catch { U.mfaInfo = {aal:'aal1', factor:null, needed:false}; }
+}
+function mfaState(){ return U.mfaInfo || {aal:'aal1', factor:null, needed:false}; }
+Object.assign(ACT, {
+  'mfa-start': async () => { try { U.mfaInfo = {...mfaState(), enroll:await DB.auth.mfa.enroll()}; renderLayer(); setTimeout(() => $('#mf-code')?.focus(), 50); } catch (e) { err('mf-err', friendly(e.message)); } },
+  'mfa-off': async () => { const st = mfaState(); if (st.needed) return err('mf-err', 'Your role needs two-step login, so it stays on.');
+    try { await DB.auth.mfa.remove(st.factor); await refreshMfa(); U.modal = null; done('Two-step login turned off'); } catch (e) { err('mf-err', friendly(e.message)); } },
+  'phone-mode': () => { U.auth = 'phone'; render(); setTimeout(() => $('#ph-num')?.focus(), 50); },
+});
+Object.assign(FORMS, {
+  mfa: async () => { const c = v('mf-code').replace(/\s/g, ''), st = mfaState(); if (!/^\d{6}$/.test(c)) return err('mf-err', 'Enter the 6 digits from the app.');
+    try { await DB.auth.mfa.verify(st.enroll?.id || st.factor, c); } catch (e) { return err('mf-err', /invalid|expired/i.test(e.message) ? 'That code didn’t match. Check the time on your phone is set automatically, and use the newest code.' : friendly(e.message)); }
+    U.mfaInfo = {...st, enroll:null}; await refreshMfa(); const back = U.modal?.then || null; U.modal = back; done(st.enroll ? 'Two-step login is on' : 'Confirmed. Carry on.'); },
+  phone1: async () => { const n = phoneE164(v('ph-num')); if (!n) return err('ph-err', 'Enter your 10-digit mobile number.');
+    try { await DB.auth.phoneStart(n); U.phoneTo = n; U.auth = 'phone2'; render(); setTimeout(() => $('#ph-code')?.focus(), 50); } catch (e) { err('ph-err', friendly(e.message)); } },
+  phone2: async () => { const c = v('ph-code').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return err('ph-err', 'Enter the 6-digit code from the SMS.');
+    try { await DB.auth.phoneVerify(U.phoneTo, c); U.auth = 'in'; } catch (e) { err('ph-err', /invalid|expired/i.test(e.message) ? 'That code didn’t match or has expired. Send a new one.' : friendly(e.message)); } },
+});
+// +91 for a 10-digit Indian mobile; full international numbers as typed
+function phoneE164(t){ const d = String(t || '').replace(/[^\d+]/g, '');
+  if (/^[6-9]\d{9}$/.test(d)) return '+91' + d; if (/^91[6-9]\d{9}$/.test(d)) return '+' + d; if (/^0[6-9]\d{9}$/.test(d)) return '+91' + d.slice(1);
+  return /^\+\d{10,15}$/.test(d) ? d : ''; }
+
 function loginView(){
   const mode = U.auth || 'in';
   const tabs = `<div class="tabs" role="group" aria-label="Sign in or create account"><button data-act="auth" data-id="in" aria-pressed="${mode === 'in'}">Sign in</button><button data-act="auth" data-id="signup" aria-pressed="${mode === 'signup'}">Create account</button></div>`;
@@ -2217,20 +2298,28 @@ function loginView(){
       <p class="err" id="fp-err"></p><div class="row"><button class="btn primary" type="submit">Send reset link</button><button class="btn ghost" type="button" data-act="auth" data-id="in">Back to sign in</button></div></form>`;
   else if (mode === 'sent') form = `<div class="stack"><h2>Check your email</h2><p>We sent a link to <b>${esc(U.sentTo || '')}</b>. ${U.sentWhat === 'reset' ? 'Open it to choose a new password.' : 'Open it to confirm your account, then sign in here.'}</p>
       <p class="small muted">Nothing there after a few minutes? Check spam, or try again.</p><button class="btn" data-act="auth" data-id="in" style="justify-self:start">Back to sign in</button></div>`;
+  else if (mode === 'phone') form = `<form class="stack" data-form="phone1"><h2>Sign in with your mobile</h2>
+      <div class="phonerow"><span class="cc">+91</span><label class="f">Mobile number<input type="tel" id="ph-num" autocomplete="tel-national" inputmode="numeric" placeholder="98200 00000" value="${esc(U.phoneTo ? U.phoneTo.replace(/^\+91/, '') : '')}"></label></div>
+      <p class="small muted">We text you a 6-digit code. New here? This creates your account; use the number your Line Producer invited.</p>
+      <p class="err" id="ph-err"></p><div class="row"><button class="btn primary" type="submit">Send code</button><button class="btn ghost" type="button" data-act="auth" data-id="in">Back</button></div></form>`;
+  else if (mode === 'phone2') form = `<form class="stack" data-form="phone2"><h2>Enter the code</h2><p>Sent by SMS to <b>${esc(U.phoneTo || '')}</b>.</p>
+      <label class="f">6-digit code<input type="text" id="ph-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="mono" style="letter-spacing:.3em;font-size:20px"></label>
+      <p class="err" id="ph-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost" type="button" data-act="phone-mode">Send a new code</button></div></form>`;
   else form = `<form class="stack" data-form="login"><h2>Sign in</h2>
       <label class="f">Username or email<input type="text" id="li-user" autocomplete="username"></label>
       <label class="f">Password<input type="password" id="li-pass" autocomplete="current-password"></label>
       <p class="err" id="li-err"></p><div class="row"><button class="btn primary" type="submit">Sign in</button><button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button></div></form>`;
   const gbtn = t => `<button class="btn gbtn" type="button" data-act="google">${GOOGLE_G}${t}</button>`;
+  const pbtn = U.phoneOn && ['in','signup'].includes(mode) ? `<button class="btn" type="button" data-act="phone-mode" style="width:100%">${icon('chat', 17)}${mode === 'signup' ? 'Sign up with your mobile number' : 'Sign in with your mobile number'}</button>` : '';
   // with Google switched on it is the main way in; the password form folds away (and stays open once used)
   let main;
-  if (U.google && ['in','signup'].includes(mode)) main = `<div class="stack gcard"><h2>${mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}
+  if (U.google && ['in','signup'].includes(mode)) main = `<div class="stack gcard"><h2>${mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>${gbtn(mode === 'signup' ? 'Sign up with Google' : 'Continue with Google')}${pbtn}
       <p class="small muted">${mode === 'signup' ? 'Your name and email come from Google. No password, no confirmation email.' : 'One tap with your Gmail. New here? This creates your account too.'} Use the Gmail your Line Producer invited, if they used one.</p></div>
     <details class="pwbox" ${U.pwOpen ? 'open' : ''}><summary>${mode === 'signup' ? 'No Gmail? Create an account with a username and password' : 'Use a username and password instead'}</summary>${form.replace(/<h2>[^<]*<\/h2>/, '').replace('<button class="btn ghost sm" type="button" data-act="forgot">Forgot password?</button>', '')}</details>
     ${mode === 'in' ? '<button class="btn ghost sm" type="button" data-act="forgot" style="justify-self:start">Forgot password?</button>' : ''}`;
   else if (U.google && mode === 'forgot') main = `${form}<div class="or"><span>or skip the email</span></div>${gbtn('Sign in with Google instead')}
       <p class="small muted">If your account uses a Gmail address, sign in with that Google account: you’re straight back in, with all your details. Then set a new password from your name menu if you want one.</p>`;
-  else main = form;
+  else main = pbtn && !U.google ? form.replace('</form>', `<div class="or"><span>or</span></div>${pbtn}</form>`) : form;
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
     <div class="row" style="gap:10px"><span class="brand" style="color:inherit"><i style="background:var(--accent-ink);color:var(--accent)">CD</i><span>CrewDesk</span></span></div>
@@ -2368,7 +2457,7 @@ async function boot(){
   catch (e) { $('#app').innerHTML = `<main><div class="wrap"><div class="empty">CrewDesk couldn’t start: ${esc(friendly(e.message))}. Check your connection and reload.</div></div></main>`; return; }
   const enter = async u => {
     S.session = u?.id || null;
-    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id);
+    if (u){ Object.keys(DRAFT).forEach(k => delete DRAFT[k]); U.pwOpen = false; try { await reload(); } catch (e) { toast(friendly(e.message)); } startLive(u.id); await refreshMfa();
       // the first time someone signs in, show them the welcome video for their role (once, on any device)
       try { if (!U.modal && !(await DB.rpc('tour_status'))){ U.modal = {type:'welcome'}; DB.rpc('tour_done').catch(() => {}); } } catch {} }
     else { stopLive(); clearInterval(pollTimer); U.notesOpen = false; S = {company:null, admins:[], users:[], projects:[], members:[], invoices:[], days:[], exports:[], log:[], notes:[], removals:[], tasks:[], unlocks:[], session:null}; }
@@ -2380,7 +2469,7 @@ async function boot(){
     if (event === 'SIGNED_IN' && u?.id === S.session) return;
     if (['SIGNED_IN','SIGNED_OUT','PASSWORD_RECOVERY','USER_UPDATED'].includes(event)) enter(u);
   });
-  DB.auth.providers?.().then(x => { if (U.google === !!x.google) return; U.google = !!x.google; if (!S.session) render(); });
+  DB.auth.providers?.().then(x => { if (U.google === !!x.google && U.phoneOn === !!x.phone) return; U.google = !!x.google; U.phoneOn = !!x.phone; if (!S.session) render(); });
   await enter(await DB.auth.current());
   // pick up other people's changes when someone comes back to the tab
   addEventListener('focus', () => { if (S.session && !U.modal && !document.activeElement?.matches('input,textarea,select')) reload().then(render, () => {}); });
