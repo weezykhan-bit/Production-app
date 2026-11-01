@@ -11,9 +11,10 @@
 \set aud 'b1111111-0000-0000-0000-000000000001'
 \set hop 'b1111111-0000-0000-0000-000000000002'
 \set cm  'b1111111-0000-0000-0000-000000000003'
+\set pc  'b1111111-0000-0000-0000-000000000004'
 select id as pid from productions limit 1 \gset
 insert into auth.users (id, email, raw_user_meta_data) values
- (:'aud', 'aud@test.in', '{"full_name":"Anil Auditor"}'), (:'hop', 'hop@test.in', '{"full_name":"Hema HOP"}'), (:'cm', 'cm@test.in', '{"full_name":"Chetan CM"}');
+ (:'aud', 'aud@test.in', '{"full_name":"Anil Auditor"}'), (:'hop', 'hop@test.in', '{"full_name":"Hema HOP"}'), (:'cm', 'cm@test.in', '{"full_name":"Chetan CM"}'), (:'pc', 'pc@test.in', '{"full_name":"Prakash PC"}');
 select as_user(:'manoj'); set role authenticated;
 select refused(format($$select onboard(%L, '{"name":"X Y","email":"aud@test.in","role":"auditor","rate":1,"joining":"2026-01-01"}')$$, :'pid'), 'Only the CFO or Commercial Head can give that access');
 reset role;
@@ -42,26 +43,38 @@ select refused(format($$select advance_invoice(%L)$$, :'inv'), 'The Auditor appr
 select refused(format($$select check_in(%L, 'X')$$, :'today'), 'locked');
 reset role;
 select as_user(:'aud'); set role authenticated;
-select ok(advance_invoice(:'inv') = 'audited', 'the Auditor approves step 1');
+select ok(advance_invoice(:'inv', 'Camera') = 'audited', 'the Auditor approves step 1 and maps it to a cost head');
+select ok((select cost_head from crew_invoices where id = :'inv') = 'Camera', 'cost head stored');
 reset role;
 select as_user(:'manoj'); set role authenticated;
+reset role;
+select as_user(:'fowzan'); set role authenticated;
+select onboard(:'pid', '{"name":"Prakash PC","email":"pc@test.in","role":"controller","dept":"Production","job":"Production Controller","rate":7000,"joining":"2026-01-01"}');
+reset role;
+update crew set user_id = :'pc' where invite_email = 'pc@test.in';
+select as_user(:'manoj'); set role authenticated;
+select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Production Controller checks');   -- with a controller on the show, the LP no longer covers it
+reset role;
+select as_user(:'pc'); set role authenticated;
+select ok(advance_invoice(:'inv') = 'pc_ok', 'the Production Controller checks step 2');
 select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Head of Production confirms');
 reset role;
 select as_user(:'hop'); set role authenticated;
-select ok(advance_invoice(:'inv') = 'hop_ok', 'the Head of Production confirms step 2');
+select ok(advance_invoice(:'inv') = 'hop_ok', 'the Head of Production confirms step 3');
 reset role;
 select as_user(:'cm'); set role authenticated;
-select ok(advance_invoice(:'inv') = 'approved', 'the Commercial Manager approves step 3');
+select ok(advance_invoice(:'inv') = 'approved', 'the Commercial Manager approves step 4');
 select refused(format($$select pay_invoices(%L, array[%L]::uuid[], 'UTRCHAIN01')$$, :'pid', :'inv'), 'Only the CFO or Accounts');
 reset role;
 select as_user(:'neha'); set role authenticated;
 select ok(pay_invoices(:'pid', array[:'inv']::uuid[], 'UTRCHAIN01') = 1, 'Accounts (the CFO’s associate) pays');
 reset role;
 select ok(exists (select 1 from notifications where user_id = :'aud' and title = 'Invoice IS-9 to audit'), 'the Auditor is asked first');
+select ok(exists (select 1 from notifications where user_id = :'manoj' and title = 'Invoice IS-9 to check'), 'then the controller step (the LP covered it: the controller joined after the audit)');
 select ok(exists (select 1 from notifications where user_id = :'hop' and title = 'Invoice IS-9 to confirm'), 'then the Head of Production');
 select ok(exists (select 1 from notifications where user_id = :'cm' and title = 'Invoice IS-9 needs commercial approval'), 'then the commercial side');
 select ok(exists (select 1 from notifications where user_id = :'neha' and title = 'Invoice IS-9 ready to pay'), 'then whoever pays');
-select ok((select count(*) from notifications where user_id = :'imran' and title like 'Invoice IS-9%') = 5, 'the person hears at every step');
+select ok((select count(*) from notifications where user_id = :'imran' and title like 'Invoice IS-9%') = 6, 'the person hears at every step');
 select ok(not exists (select 1 from notifications where user_id = :'manoj' and title = 'Invoice IS-9 to audit'), 'the LP is no longer asked once there is an Auditor');
 -- locked days and permission to change them
 select as_user(:'manoj'); set role authenticated;

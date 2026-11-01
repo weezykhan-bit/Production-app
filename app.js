@@ -27,7 +27,7 @@ const DEPTS = {
 const FORMATS = ['Long-format fiction · daily','Long-format fiction · weekly','Web series','Feature film','Micro-drama','Ad film','Music video','Non-fiction / reality','Documentary'];
 const ROLES = {
   cfo:{label:'CFO',owner:true}, commercial:{label:'Commercial Head',owner:true}, lp:{label:'Line Producer'}, hop:{label:'Head of Production'},
-  commercial_mgr:{label:'Commercial Manager'}, auditor:{label:'Auditor'}, accounts:{label:'Accounts (CFO’s team)'}, hod:{label:'Head of Department'}, crew:{label:'Crew / Cast'}, vendor:{label:'Vendor / Service'},
+  commercial_mgr:{label:'Commercial Manager'}, controller:{label:'Production Controller'}, auditor:{label:'Auditor'}, accounts:{label:'Accounts (CFO’s team)'}, hod:{label:'Head of Department'}, crew:{label:'Crew / Cast'}, vendor:{label:'Vendor / Service'},
 };
 const UNITS = {day:'per day',episode:'per episode',week:'per week',month:'per month',lump:'lump sum'};
 const QTY = {day:'Days worked',episode:'Episodes',week:'Weeks',month:'Months',lump:'Quantity'};
@@ -47,15 +47,16 @@ const HOSTED = true;
 const STAGES = [['deal','Deal set'],['profile','Profile & bank'],['docs','Aadhaar & PAN'],['sent','Agreement sent'],['signed','Signed'],['active','Approved']];
 const NEXT_LABEL = {join:'Invited · not joined yet',deal:'Needs deal',profile:'Profile pending',docs:'Documents pending',sent:'Ready for agreement',signed:'Waiting for signature',active:'Awaiting approval'};
 // the approval chain every invoice follows
-const CHAIN = [['submitted','Submitted'],['audited','Audited'],['hop_ok','HOP confirmed'],['approved','Commercial approved'],['paid','Paid']];
-const STEP_NAME = {submitted:'Approve audit', audited:'Confirm (HOP)', hop_ok:'Approve (Commercial)'};
+const CHAIN = [['submitted','Submitted'],['audited','Audited'],['pc_ok','Controller checked'],['hop_ok','HOP confirmed'],['approved','Commercial approved'],['paid','Paid']];
+const STEP_NAME = {submitted:'Audit & map to cost head', audited:'Check (Production Controller)', pc_ok:'Confirm (HOP)', hop_ok:'Approve (Commercial)'};
+const OPEN_INV = ['submitted','audited','pc_ok','hop_ok'];
 const KINDS = [['cast','Artists'],['crew','Crew'],['vendor','Vendors']];
 const KIND_ONE = {cast:'Artist', crew:'Crew', vendor:'Vendor'};
 const AG_TYPE = {cast:'Artist agreement', crew:'Crew agreement', vendor:'Vendor service agreement'};
 // which list someone is on follows their department (the database applies the same rule)
 const kindOf = (dept, role, cur) => role === 'vendor' || dept === 'Vendors & Services' ? 'vendor' : dept === 'Cast' ? 'cast' : dept ? 'crew' : (cur || 'crew');
 const DEDUCT = {advance:'Advance recovered', damage:'Loss or damage', stay:'Food, stay or travel', penalty:'Late or penalty', other:'Other'};
-const INV = {submitted:['With the Auditor','warn'],audited:['With the Head of Production','gold'],hop_ok:['With the Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
+const INV = {submitted:['With the Auditor','warn'],audited:['With the Production Controller','gold'],pc_ok:['With the Head of Production','gold'],hop_ok:['With the Commercial Head','gold'],approved:['Approved · to pay','info'],paid:['Paid','good'],rejected:['Rejected','bad']};
 
 /* ============================================================ helpers */
 const $ = s => document.querySelector(s);
@@ -123,19 +124,19 @@ const can = {
   countersign: r => isOwner(r),
   seeKyc: r => ['cfo','commercial','accounts'].includes(r),
   pay: r => ['cfo','accounts'].includes(r),
-  audit: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr'].includes(r),
+  audit: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr','controller'].includes(r),
   revert: r => isOwner(r),
   schedule: r => isOwner(r) || isLP(r),
-  reports: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr'].includes(r),
+  reports: r => isOwner(r) || isLP(r) || ['accounts','auditor','commercial_mgr','controller'].includes(r),
   finance: r => ['cfo','commercial','commercial_mgr','accounts'].includes(r),
-  adjust: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor'].includes(r),
+  adjust: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor','controller'].includes(r),
   confirmAtt: r => r === 'auditor' || (isOwner(r) && !hasRole(U.pid, ['auditor'])),
   grantUnlock: r => ['commercial','commercial_mgr'].includes(r),
   askUnlock: r => isOwner(r) || isLP(r) || ['auditor','accounts'].includes(r),
-  costs: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor'].includes(r),
+  costs: r => ['cfo','commercial','commercial_mgr','hop','lp','accounts','auditor','controller'].includes(r),
   giveFloat: r => ['cfo','commercial','commercial_mgr','accounts'].includes(r),
   dpr: r => isOwner(r) || isLP(r) || r === 'commercial_mgr',
-  taskHead: r => ['cfo','commercial','commercial_mgr','hop','lp','auditor','hod'].includes(r),
+  taskHead: r => ['cfo','commercial','commercial_mgr','hop','lp','auditor','controller','hod'].includes(r),
   remove: r => isOwner(r),
   askRemove: r => isLP(r),
 };
@@ -145,7 +146,8 @@ const hasRole = (pid, roles) => S.members.some(m => m.pid === pid && !m.removed 
 // may this role act on the invoice's current step? (same rules as the database)
 function stepOk(i, r){
   if (i.status === 'submitted') return r === 'auditor' || (!hasRole(i.pid, ['auditor']) && ['cfo','commercial','lp'].includes(r));
-  if (i.status === 'audited') return r === 'hop' || (!hasRole(i.pid, ['hop']) && ['cfo','commercial','lp'].includes(r));
+  if (i.status === 'audited') return r === 'controller' || (!hasRole(i.pid, ['controller']) && ['cfo','commercial','lp'].includes(r));
+  if (i.status === 'pc_ok') return r === 'hop' || (!hasRole(i.pid, ['hop']) && ['cfo','commercial','lp'].includes(r));
   if (i.status === 'hop_ok') return ['commercial','commercial_mgr'].includes(r) || (!hasRole(i.pid, ['commercial','commercial_mgr']) && r === 'cfo');
   return false;
 }
@@ -217,7 +219,7 @@ function todos(pid, uidv){
   if (isLP(r) || isOwner(r)){
     mems.filter(m => stageOf(m).next === 'sent').forEach(m => out.push({t:`Send agreement to ${user(m.userId).name}`, s:'Profile and documents are complete', act:'send-ag', id:m.id, b:'Send'}));
   }
-  invs.filter(i => i.by !== uidv && stepOk(i, r)).forEach(i => out.push({t:`${{submitted:'Audit', audited:'Confirm', hop_ok:'Approve'}[i.status]} invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept} · ${INV[i.status][0].toLowerCase()}`, act:'open-invoice', id:i.id, b:'Review'}));
+  invs.filter(i => i.by !== uidv && stepOk(i, r)).forEach(i => out.push({t:`${{submitted:'Audit', audited:'Check', pc_ok:'Confirm', hop_ok:'Approve'}[i.status]} invoice ${i.no} · ${inr(i.payable)}`, s:`${user(i.by).name} · ${i.dept} · ${INV[i.status][0].toLowerCase()}`, act:'open-invoice', id:i.id, b:'Review'}));
   if (can.confirmAtt(r)) S.days.filter(d => d.pid === pid && d.date <= today() && d.status !== 'cancelled' && !d.confirmedAt && d.att.length)
     .forEach(d => out.push({t:`Confirm attendance for ${fmtD(d.date)}`, s:`${d.att.length} checked in at the gate · invoices wait for this`, act:'open-day', id:d.id, b:'Confirm'}));
   if (can.grantUnlock(r)) (S.unlocks || []).filter(q => q.pid === pid && q.status === 'pending').forEach(q => { const d = S.days.find(x => x.pid === pid && x.date === q.date);
@@ -267,7 +269,7 @@ function render(){
 function afterRender(){ setupSig(); }
 
 function loginView(){
-  const demo = [['ritika','Ritika Menon','CFO · owner access'],['fowzan','Fowzan','Commercial Head · owner access'],['sneha','Sneha Iyer','Commercial Manager · approves and unlocks'],['hema','Hema Joshi','Head of Production · confirms invoices'],['vikas','Vikas Rao','Auditor · confirms attendance'],['manoj','Manoj Patil','Line Producer · shares the code'],['neha','Neha Kulkarni','Finance & Accounts'],['asha','Asha D’Souza','HOD · Camera'],['priya','Priya Nair','Crew · onboarding in progress'],['dev','Dev Malhotra','Cast · agreement to sign'],['imran','Imran Shaikh','Crew · onboarded, invoices']].filter(([n]) => S.users.some(x => x.username === n));
+  const demo = [['ritika','Ritika Menon','CFO · owner access'],['fowzan','Fowzan','Commercial Head · owner access'],['sneha','Sneha Iyer','Commercial Manager · approves and unlocks'],['prakash','Prakash Shetty','Production Controller · checks invoices'],['hema','Hema Joshi','Head of Production · confirms invoices'],['vikas','Vikas Rao','Auditor · confirms attendance'],['manoj','Manoj Patil','Line Producer · shares the code'],['neha','Neha Kulkarni','Finance & Accounts'],['asha','Asha D’Souza','HOD · Camera'],['priya','Priya Nair','Crew · onboarding in progress'],['dev','Dev Malhotra','Cast · agreement to sign'],['imran','Imran Shaikh','Crew · onboarded, invoices']].filter(([n]) => S.users.some(x => x.username === n));
   const su = U.auth === 'signup';
   return `<div class="login">
   <section class="login-brand"><div class="stripes"></div>
@@ -366,7 +368,7 @@ function projBlock(p){
   return wk.length ? (wk[0].epFrom === wk[wk.length - 1].epTo ? `Ep ${wk[0].epFrom}` : `Ep ${wk[0].epFrom}–${wk[wk.length - 1].epTo}`) : fmtD(n[0].date);
 }
 const attIn = (pid, uidv, from, to) => S.days.filter(d => d.pid === pid && d.status === 'shot' && d.date >= from && d.date <= to && d.att.includes(uidv)).length;
-const overClaim = i => i.unit === 'day' && ['submitted','audited','hop_ok'].includes(i.status) && i.qty > attIn(i.pid, i.by, i.from, i.to);
+const overClaim = i => i.unit === 'day' && OPEN_INV.includes(i.status) && i.qty > attIn(i.pid, i.by, i.from, i.to);
 function attCheck(i){
   if (i.unit !== 'day') return '';
   const n = attIn(i.pid, i.by, i.from, i.to);
@@ -393,7 +395,7 @@ function monthStats(pid, ym){
     if (ub){ unbilled += ub; byDept[m.dept] = byDept[m.dept] || {billed:0, unbilled:0}; byDept[m.dept].unbilled += ub; }
   });
   const approved = sum(invs.filter(i => ['approved','paid'].includes(i.status)), i => i.amount);
-  const pend = invs.filter(i => ['submitted','audited','hop_ok'].includes(i.status));
+  const pend = invs.filter(i => OPEN_INV.includes(i.status));
   return {sched:days.filter(d => d.status !== 'cancelled').length, shot:shotD.length, cancelled:days.filter(d => d.status === 'cancelled').length, planned:days.filter(d => d.status === 'planned').length,
     eps:sum(shotD.filter(d => d.epFrom), d => d.epTo - d.epFrom + 1), approved, pending:sum(pend, i => i.amount), pendingPay:sum(pend, i => i.payable),
     paid:sum(S.invoices.filter(i => i.pid === pid && i.paidAt && ymAt(i.paidAt) === ym), i => i.payable),
@@ -424,7 +426,7 @@ function codePanel(p){
 function dashView(){
   const p = proj(U.pid), r = myRole(), mems = S.members.filter(m => m.pid === p.id && !m.removed), invs = S.invoices.filter(i => i.pid === p.id), td = todos(p.id, S.session);
   const onb = mems.filter(m => !stageOf(m).next).length;
-  const pend = invs.filter(i => ['submitted','audited','hop_ok'].includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
+  const pend = invs.filter(i => OPEN_INV.includes(i.status)), toPay = invs.filter(i => i.status === 'approved'), paid = invs.filter(i => i.status === 'paid');
   const sum = (a, k = 'payable') => a.reduce((s, i) => s + i[k], 0);
   const funnel = STAGES.map(([k, l]) => [l, mems.filter(m => stageOf(m).d[k]).length]);
   const spend = {}; invs.filter(i => ['approved','paid'].includes(i.status)).forEach(i => spend[i.dept] = (spend[i.dept] || 0) + i.amount);
@@ -569,11 +571,11 @@ function invoicesView(){
   if (!staff) invs = invs.filter(i => i.by === S.session);
   else if (r === 'hod') invs = invs.filter(i => i.dept === m.dept || i.by === S.session);
   const mineToAct = i => invActions(i).length > 0;
-  const tabs = staff ? [['mine','Needs my action'],['all','All'],['submitted','With Auditor'],['audited','With HOP'],['hop_ok','With Commercial'],['approved','To pay'],['paid','Paid'],['rejected','Rejected']] : [];
+  const tabs = staff ? [['mine','Needs my action'],['all','All'],['submitted','With Auditor'],['audited','With Controller'],['pc_ok','With HOP'],['hop_ok','With Commercial'],['approved','To pay'],['paid','Paid'],['rejected','Rejected']] : [];
   const f = staff ? U.invf : 'all';
   const shown = invs.filter(i => f === 'all' || (f === 'mine' ? mineToAct(i) : i.status === f)).sort((a, b) => b.at - a.at);
   const canRaise = !staff ? !stageOf(m).next : true;
-  return `${projHead(staff ? 'Invoices' : 'My invoices', `<p class="muted">Approval goes ${esc('Auditor → Head of Production → Commercial Head → CFO / Accounts pays')}. Everyone in the chain is told when it’s their turn. TDS comes off the fee before GST is added back.</p>`)}
+  return `${projHead(staff ? 'Invoices' : 'My invoices', `<p class="muted">Approval goes ${esc('Auditor → Production Controller → Head of Production → Commercial Head → CFO / Accounts pays')}. Everyone in the chain is told when it’s their turn. TDS comes off the fee before GST is added back.</p>`)}
   <div class="spread"><div class="filters">${tabs.map(([k, l]) => `<button class="fchip" data-act="invf" data-id="${k}" aria-pressed="${U.invf === k}">${l}<span class="n">${invs.filter(i => k === 'all' || (k === 'mine' ? mineToAct(i) : i.status === k)).length}</span></button>`).join('')}</div>
     ${m && m.rate ? `<button class="btn primary" data-act="raise" ${canRaise ? '' : 'disabled title="Finish onboarding first"'}>${icon('plus', 16)}Raise invoice</button>` : ''}</div>
   ${!staff && !canRaise ? '<p class="banner">You can raise invoices once your agreement is approved.</p>' : ''}
@@ -591,12 +593,12 @@ function invoicesView(){
       <span class="spread"><span class="small muted">${fmtD(i.from)} – ${fmtD(i.to)} · ${i.qty} × ${inr(i.rate)}</span><b class="num">${inr(i.payable)}</b></span>
       ${i.deduction ? `<span class="small">Deductions −${inr(i.deduction)}: ${esc((i.deductions || []).map(d => d.label).join(', '))}</span>` : ''}${i.remarks ? `<span class="small muted">“${esc(i.remarks)}”</span>` : ''}${i.utr ? `<span class="small mono muted">Paid · ${esc(i.utr)}</span>` : ''}${i.reason ? `<span class="small" style="color:var(--bad)">${esc(i.reason)}</span>` : ''}</button>`; }).join('') || '<div class="empty">You haven’t raised an invoice yet.</div>'}</div>`}`;
 }
-const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && ['submitted','audited','hop_ok','approved'].includes(i.status) && !i.tp;
+const canAdjust = i => can.adjust(myRole()) && i.by !== S.session && [...OPEN_INV,'approved'].includes(i.status) && !i.tp;
 function invActions(i){
   const r = myRole(), out = [];
   if (i.by !== S.session && stepOk(i, r)) out.push(['inv-step', STEP_NAME[i.status]]);
   if (i.status === 'approved' && can.pay(r)) out.push(['pay','Mark paid']);
-  if (i.by !== S.session && ['submitted','audited','hop_ok'].includes(i.status) && (stepOk(i, r) || isOwner(r))) out.push(['reject','Reject','danger']);
+  if (i.by !== S.session && OPEN_INV.includes(i.status) && (stepOk(i, r) || isOwner(r))) out.push(['reject','Reject','danger']);
   return out.map(([a, l, c]) => [a, l, c || (a === 'reject' ? '' : 'primary')]);
 }
 
@@ -622,18 +624,18 @@ function fmtField(f, v){
 
 /* ---------- access */
 function accessView(){
-  const cols = ['cfo','commercial','commercial_mgr','auditor','hop','lp','accounts','hod','crew','vendor'];
+  const cols = ['cfo','commercial','commercial_mgr','auditor','controller','hop','lp','accounts','hod','crew','vendor'];
   const rows = [
     ['Create a production', r => isOwner(r)], ['Onboard people and send invites', r => can.onboard(r)], ['Set or change a deal (rate, dates, TDS)', r => can.editDeal(r)],
     ['Send agreements', r => can.sendAgreement(r)], ['Approve signed agreements', r => can.countersign(r)], ['See everyone’s PAN, Aadhaar and bank details', r => can.seeKyc(r)],
-    ['Confirm attendance; approve invoices (step 1)', r => r === 'auditor'], ['Confirm invoices (step 2)', r => r === 'hop'], ['Approve invoices for payment (step 3)', r => ['commercial','commercial_mgr'].includes(r)], ['Mark invoices paid (step 4)', r => can.pay(r)],
+    ['Confirm attendance; audit invoices and map them to cost heads (step 1)', r => r === 'auditor'], ['Check invoices (step 2)', r => r === 'controller'], ['Confirm invoices (step 3)', r => r === 'hop'], ['Approve invoices for payment (step 4)', r => ['commercial','commercial_mgr'].includes(r)], ['Mark invoices paid (step 5)', r => can.pay(r)],
     ['Allow changes to a locked shoot day', r => can.grantUnlock(r)], ['Enter daily costs and import the Excel template', r => can.costs(r)], ['Give petty cash', r => can.giveFloat(r)], ['File the daily production report', r => can.dpr(r)], ['Assign tasks', r => can.taskHead(r)],
     ['See the activity log', r => can.audit(r)], ['Undo deal changes', r => can.revert(r)], ['Set up company details (once)', r => isOwner(r)], ['Generate and share the production code', r => can.code(r)],
     ['Plan the shoot schedule and check crew in', r => can.schedule(r)], ['See monthly reports and costs', r => can.reports(r)],
     ['Payment runs, TDS and GST registers, Tally sync', r => can.finance(r)],
     ['Fill own profile, photo, documents, sign, raise invoices', () => true],
   ];
-  return `${projHead('Who can do what', '<p class="muted">Owner access belongs to the CFO and the Commercial Head. Invoices go Auditor → Head of Production → Commercial Head or Manager → CFO or Accounts pays. If a show has nobody in a role, the owners and Line Producer cover that step. Nobody approves their own invoice. HODs assign tasks within their department.</p>')}
+  return `${projHead('Who can do what', '<p class="muted">Owner access belongs to the CFO and the Commercial Head. Invoices go Auditor (maps each to a cost head) → Production Controller → Head of Production → Commercial Head or Manager → CFO or Accounts pays. If a show has nobody in a role, the owners and Line Producer cover that step. Nobody approves their own invoice. HODs assign tasks within their department.</p>')}
   <div class="tablewrap"><table class="matrix"><thead><tr><th>Can…</th>${cols.map(c => `<th>${ROLES[c].label}</th>`).join('')}</tr></thead><tbody>
   ${rows.map(([l, f]) => `<tr><td>${l}</td>${cols.map(c => `<td>${f(c) ? '<span class="yes" aria-label="yes">✓</span>' : '<span class="no" aria-label="no">·</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
@@ -737,7 +739,7 @@ const dateEditable = (pid, ds, r = myRole()) => !dateLocked(pid, ds) || can.gran
 // spend to date by budget head: invoices raised through CrewDesk plus daily cost lines
 function budgetRows(p, ym){
   const inv = {}, cost = {}, mInv = {}, mCost = {};
-  S.invoices.filter(i => i.pid === p.id && i.status !== 'rejected').forEach(i => { inv[i.dept] = (inv[i.dept] || 0) + i.amount; if (i.to.startsWith(ym)) mInv[i.dept] = (mInv[i.dept] || 0) + i.amount; });
+  S.invoices.filter(i => i.pid === p.id && i.status !== 'rejected').forEach(i => { const h = i.head || i.dept; inv[h] = (inv[h] || 0) + i.amount; if (i.to.startsWith(ym)) mInv[h] = (mInv[h] || 0) + i.amount; });
   costsOf(p.id).forEach(c => { cost[c.head] = (cost[c.head] || 0) + c.amount; if (c.date.startsWith(ym)) mCost[c.head] = (mCost[c.head] || 0) + c.amount; });
   return [...new Set([...Object.keys(p.budget || {}), ...Object.keys(inv), ...Object.keys(cost)])].map(h => {
     const b = p.budget?.[h] || 0, used = (inv[h] || 0) + (cost[h] || 0);
@@ -873,12 +875,27 @@ async function readCostFile(file){
 // overtime past a 12-hour shift, from the daily report
 const hhmm = t => { const [h, m] = String(t || '').split(':').map(Number); return h * 60 + m; };
 const hm = n => `${Math.floor(n / 60)}h${n % 60 ? ' ' + String(n % 60).padStart(2, '0') + 'm' : ''}`;
-function shiftOf(r){ if (!r?.call || !r?.wrap) return null; let s = hhmm(r.wrap) - hhmm(r.call); if (s <= 0) s += 1440; return {s, ot:Math.max(0, s - 720)}; }
+const OT_AFTER = 720;   // pro rata overtime after a 12-hour shift (same rule as the database)
+function shiftOf(r){ if (!r?.call || !r?.wrap) return null; let s = hhmm(r.wrap) - hhmm(r.call); if (s <= 0) s += 1440; return {s, ot:Math.max(0, s - OT_AFTER)}; }
+// a day-rate person's overtime for an invoice period: day rate ÷ 12 for each hour past 12, to the minute
+function otFor(pid, uidv, from, to, rate, unit){
+  if (unit !== 'day') return {min:0, amt:0};
+  const min = S.days.filter(d => d.pid === pid && d.status !== 'cancelled' && d.date >= from && d.date <= to && d.att.includes(uidv)).reduce((t, d) => t + (shiftOf(d.dpr)?.ot || 0), 0);
+  return {min, amt:Math.round(rate * min / OT_AFTER)};
+}
+function applyOt(i){
+  const o = otFor(i.pid, i.by, i.from, i.to, i.rate, i.unit), amt = i.amount - (i.otAmount || 0) + o.amt;
+  if (o.amt === (i.otAmount || 0) && o.min === (i.otMinutes || 0)) return;
+  if (i.otAmount || o.amt) log(i.pid, 'invoice', `Overtime on ${i.no}: ${hm(o.min)} · ${inr(o.amt)}${i.otAmount ? ` (was ${inr(i.otAmount)})` : ''}`, {invoiceId:i.id});
+  const gst = Math.round(amt * i.gstRate / 100), tds = Math.round(amt * TDS[i.tdsKey].rate / 100);
+  Object.assign(i, {otMinutes:o.min, otAmount:o.amt, amount:amt, gst, tds, payable:amt + gst - tds - (i.deduction || 0)});
+}
 function dprPanel(d, edit){
   const r = d.dpr, sh = shiftOf(r), meals = d.att.length;
   const facts = r ? `<dl class="dl"><dt>Actual call</dt><dd class="mono">${esc(r.call || '—')}</dd><dt>First shot</dt><dd class="mono">${esc(r.first || '—')}${r.call && r.first ? ` <span class="muted small">${hm(Math.max(0, hhmm(r.first) - hhmm(r.call)))} after call</span>` : ''}</dd>
       <dt>Lunch</dt><dd>${r.lunch != null ? r.lunch + ' min' : '—'}</dd><dt>Wrap</dt><dd class="mono">${esc(r.wrap || '—')}</dd>
       <dt>Shift</dt><dd>${sh ? `${hm(sh.s)}${sh.ot ? ` <span class="chip bad">${hm(sh.ot)} overtime</span>` : ' <span class="chip good">within 12h</span>'}` : '—'}</dd>
+      ${sh?.ot && isStaff(myRole()) ? (() => { const ms = d.att.map(u => memberIn(d.pid, u)).filter(m => m && m.unit === 'day' && m.rate); return `<dt>Overtime pay</dt><dd class="num">${inr(ms.reduce((t, m) => t + Math.round(m.rate * sh.ot / OT_AFTER), 0))} <span class="muted small">pro rata for ${ms.length} day-rate ${ms.length === 1 ? 'person' : 'people'}; added to their invoices</span></dd>`; })() : ''}
       <dt>Scenes</dt><dd>${r.shot ?? '—'} of ${r.planned ?? '—'} shot${r.planned && r.shot < r.planned ? ` <span class="chip warn">${r.planned - r.shot} carried over</span>` : ''}</dd><dt>Minutes shot</dt><dd>${r.minutes ?? '—'}</dd>
       ${r.delay ? `<dt>Delay</dt><dd>${esc(r.delay)}</dd>` : ''}<dt>Meals</dt><dd>${meals} people checked in</dd></dl><p class="small muted">Filed by ${esc(user(r.by)?.name || '')} · ${fmtT(r.at)}</p>` : '';
   if (!edit) return r ? `<section class="panel stack"><h3>Daily production report</h3>${facts}</section>` : '';
@@ -1148,7 +1165,7 @@ function workbookData(pid){
     sh['Petty cash'] = pettyBook(pid).map(b => ({Holder:user(b.u)?.name || '', 'Given (₹)':b.given, 'Spent (₹)':b.spent, 'Balance (₹)':b.left}));
   }
   KINDS.forEach(([k, label]) => sh[label] = S.members.filter(m => m.pid === pid && m.kind === k).map(m => { const u = user(m.userId), s = stageOf(m); return {Name:u.name, Department:m.dept, Job:m.job, Access:ROLES[m.role].label, 'Rate (₹)':m.rate || '', Per:UNITS[m.unit], Joining:m.joining, 'TDS section':TDS[m.tds]?.label || '', Status:s.next ? NEXT_LABEL[s.next] : 'Onboarded', Agreement:{none:'Not sent', sent:'Sent', signed:'Signed', countersigned:'Approved'}[m.ag?.status || 'none'], Mobile:u.phone, PAN:can.seeKyc(r) ? u.pan : mask(u.pan), 'Crew ID':m.code}; }));
-  sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, List:KIND_ONE[member(i.memberId)?.kind] || '', Department:i.dept, From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Deductions (₹)':i.deduction || 0, 'Deduction details':(i.deductions || []).map(d => `${d.label} ${d.amount}: ${d.note}`).join('; '), 'Payable (₹)':i.payable, Remarks:i.remarks || '', Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
+  sh['Invoices'] = S.invoices.filter(i => i.pid === pid && (isStaff(r) || i.by === S.session)).map(i => ({Invoice:i.no, Name:user(i.by).name, List:KIND_ONE[member(i.memberId)?.kind] || '', Department:i.dept, 'Cost head':i.head || '', 'Invoice file':i.doc ? 'Uploaded' : '', From:i.from, To:i.to, Quantity:i.qty, 'Rate (₹)':i.rate, 'Fee (₹)':i.amount, 'Of which overtime (₹)':i.otAmount || 0, 'Overtime (h:mm)':i.otMinutes ? hm(i.otMinutes) : '', 'GST (₹)':i.gst, 'TDS (₹)':i.tds, 'Deductions (₹)':i.deduction || 0, 'Deduction details':(i.deductions || []).map(d => `${d.label} ${d.amount}: ${d.note}`).join('; '), 'Payable (₹)':i.payable, Remarks:i.remarks || '', Status:INV[i.status][0], 'Paid on':i.paidAt ? isoD(new Date(i.paidAt)) : '', UTR:i.utr || '', 'In Tally':i.tp ? 'Yes' : 'No'}));
   if (fin){
     sh['TDS'] = S.invoices.filter(i => i.pid === pid && i.tds > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Deductee:user(i.by).legal || user(i.by).name, PAN:user(i.by).pan, Section:TDS[i.tdsKey].code, 'Rate %':TDS[i.tdsKey].rate, 'Fee (₹)':i.amount, 'TDS (₹)':i.tds}));
     sh['GST input'] = S.invoices.filter(i => i.pid === pid && i.gst > 0 && ['approved','paid'].includes(i.status)).map(i => ({Booked:isoD(new Date(i.approvedAt || i.at)), Invoice:i.no, Supplier:user(i.by).legal || user(i.by).name, GSTIN:user(i.by).gstin, 'Taxable (₹)':i.amount, ...Object.fromEntries(Object.entries(gstSplit(i)).map(([k, v]) => [k.toUpperCase() + ' (₹)', v]))}));
@@ -1185,7 +1202,7 @@ function removalPanel(m){
   return '';
 }
 const rmHistory = m => ['signed','countersigned'].includes(m.ag?.status) || S.invoices.some(i => i.memberId === m.id) || S.days.some(d => d.pid === m.pid && d.att.includes(m.userId));
-const rmOpen = m => S.invoices.some(i => i.memberId === m.id && ['submitted','audited','hop_ok','approved'].includes(i.status));
+const rmOpen = m => S.invoices.some(i => i.memberId === m.id && [...OPEN_INV,'approved'].includes(i.status));
 function personDrawer(m){
   if (!m) return '';
   const u = user(m.userId), r = myRole(), s = stageOf(m), a = m.ag || {}, kyc = can.seeKyc(r) || u.id === S.session;
@@ -1214,8 +1231,8 @@ function personDrawer(m){
 // where an invoice is in the chain: each step with who and when, and what it is waiting for
 function chainBar(i, mini){
   if (i.status === 'rejected') return `<div class="chain-rej"><b>Rejected</b> · ${esc(i.reason || '')}</div>`;
-  const at = CHAIN.findIndex(([k]) => k === i.status), who = {submitted:[i.by, i.at], audited:[i.auditedBy, i.auditedAt], hop_ok:[i.hopBy, i.hopAt], approved:[i.approvedBy, i.approvedAt], paid:[null, i.paidAt]};
-  const wait = {audited:'Auditor', hop_ok:'Head of Production', approved:'Commercial Head', paid:'CFO / Accounts'};
+  const at = CHAIN.findIndex(([k]) => k === i.status), who = {submitted:[i.by, i.at], audited:[i.auditedBy, i.auditedAt], pc_ok:[i.pcBy, i.pcAt], hop_ok:[i.hopBy, i.hopAt], approved:[i.approvedBy, i.approvedAt], paid:[null, i.paidAt]};
+  const wait = {audited:'Auditor', pc_ok:'Production Controller', hop_ok:'Head of Production', approved:'Commercial Head', paid:'CFO / Accounts'};
   return `<ol class="chain${mini ? ' mini' : ''}" aria-label="Approval steps">${CHAIN.map(([k, l], n) => { const [u, t] = who[k] || [], st = n <= at ? 'done' : n === at + 1 ? 'now' : '';
     return `<li class="${st}"><i>${st === 'done' ? icon('check', 12) : n + 1}</i>${mini ? '' : `<span><b>${l}</b><small>${st === 'done' ? `${u ? esc(user(u)?.name || '') + ' · ' : ''}${t ? fmtT(t) : ''}` : st === 'now' ? 'With the ' + wait[k] : '&nbsp;'}</small></span>`}</li>`; }).join('')}</ol>`;
 }
@@ -1225,8 +1242,8 @@ function invoiceDrawer(i){
   return `<div class="spread"><button class="btn ghost sm" data-act="close">${icon('back', 16)}Back</button><span class="chip ${c}">${l}</span></div>
   <div class="stack" style="gap:4px"><h2 class="mono">Invoice ${esc(i.no)}</h2><p class="muted">${esc(u.name)} · ${esc(m?.job || '')} · ${esc(i.dept)}</p></div>
   <section class="panel">${chainBar(i)}</section>
-  <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}${i.remarks ? `<dt>Remarks</dt><dd>${esc(i.remarks)}</dd>` : ''}</dl>
-    <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount)}</span><span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span>${(i.deductions || []).map(d => `<span>${esc(d.label)} · ${esc(d.note)}</span><span class="num">−${inr(d.amount)}</span>`).join('')}<span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
+  <section class="panel stack"><dl class="dl"><dt>Period</dt><dd>${fmtD(i.from)} – ${fmtD(i.to)}</dd><dt>Work</dt><dd>${esc(i.desc)}</dd>${i.head ? `<dt>Cost head</dt><dd>${esc(i.head)} <span class="muted small">mapped at the audit</span></dd>` : ''}<dt>Invoice file</dt><dd>${i.doc ? `<a href="#" data-act="inv-doc" data-id="${i.id}">${icon('doc', 15)} ${esc(i.docName || 'View the uploaded invoice')}</a>` : '<span class="muted">Not uploaded</span>'}</dd><dt>Submitted</dt><dd>${fmtT(i.at)}</dd>${i.utr ? `<dt>Bank reference</dt><dd class="mono">${esc(i.utr)}</dd>` : ''}${i.reason ? `<dt>Rejected because</dt><dd>${esc(i.reason)}</dd>` : ''}${i.remarks ? `<dt>Remarks</dt><dd>${esc(i.remarks)}</dd>` : ''}</dl>
+    <div class="calc"><span>${i.qty} × ${inr(i.rate)} ${UNITS[i.unit]}</span><span class="num">${inr(i.amount - (i.otAmount || 0))}</span>${i.otAmount ? `<span>Overtime ${hm(i.otMinutes)} <span class="muted">· ${inr(i.rate)} ÷ 12 an hour past 12 h</span></span><span class="num">${inr(i.otAmount)}</span>` : ''}<span>GST ${i.gstRate}%</span><span class="num">${inr(i.gst)}</span><span>Invoice total</span><span class="num">${inr(i.amount + i.gst)}</span><span>TDS · ${esc(TDS[i.tdsKey]?.label || '')}</span><span class="num">−${inr(i.tds)}</span>${(i.deductions || []).map(d => `<span>${esc(d.label)} · ${esc(d.note)}</span><span class="num">−${inr(d.amount)}</span>`).join('')}<span class="tot">Payable</span><span class="num tot">${inr(i.payable)}</span></div></section>
   ${canAdjust(i) ? `<div class="row"><button class="btn" data-act="adjust" data-id="${i.id}">Deductions & remarks</button></div>` : ''}
   ${attCheck(i)}
   <section class="panel"><h3>Pay to</h3><p>${esc(can.seeKyc(myRole()) || i.by === S.session ? bankLine(u) : 'Visible to Accounts, the CFO and Commercial Head')}</p></section>
@@ -1269,8 +1286,17 @@ function modalBody(){
       <div class="grid2"><label class="f">Your invoice number<input type="text" id="rv-no" required class="mono"></label><label class="f">${QTY[m.unit]}${m.unit === 'day' ? ' <span class="hint">filled from gate check-ins</span>' : ''}<input type="number" id="rv-qty" min="0.5" step="0.5" value="${m.unit === 'day' ? (n || 1) : 1}" class="mono"></label></div>
       <p class="small" id="rv-att"></p>
       <div class="grid2"><label class="f">GST<select id="rv-gst" ${u.gstin ? '' : 'disabled'}>${opt([['0', 'No GST'], ['5', '5%'], ['12', '12%'], ['18', '18%']], u.gstin ? '18' : '0')}</select>${u.gstin ? '' : '<span class="hint small">Add a GSTIN to your profile to charge GST</span>'}</label><label class="f">Description<input type="text" id="rv-desc" placeholder="${esc(m.job)}, shoot days"></label></div>
+      <label class="f">Your invoice <span class="hint">PDF or photo, up to 5 MB${u.gstin ? ' · required when you charge GST' : ' · optional'}</span><input type="file" id="rv-doc" accept="application/pdf,image/*"></label>
       <div class="calc" id="rv-calc"></div>
       <p class="err" id="rv-err"></p><div class="row"><button class="btn primary" type="submit">Submit invoice</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'audit'){
+    const i = S.invoices.find(x => x.id === M.id), u = user(i.by);
+    return `${head(`Audit invoice ${esc(i.no)}`, `${esc(u.name)} · ${esc(i.dept)} · ${inr(i.amount + i.gst)}`)}
+    ${attCheck(i)}
+    <p class="small">${i.doc ? `${icon('doc', 15)} <a href="#" data-act="inv-doc" data-id="${i.id}">Open the uploaded invoice</a> and check it matches.` : '<span class="muted">No invoice file uploaded; the details below are what they entered.</span>'}${i.otAmount ? ` Overtime ${hm(i.otMinutes)} · ${inr(i.otAmount)} from the daily reports.` : ''}</p>
+    <form class="stack" data-form="audit"><label class="f">Cost head in the cost report <span class="hint">where this invoice counts against the budget</span><select id="au-head">${opt(COST_HEADS.includes(i.dept) ? COST_HEADS : [i.dept, ...COST_HEADS], i.head || i.dept)}</select></label>
+      <p class="err" id="au-err"></p><div class="row"><button class="btn primary" type="submit">${icon('check', 16)}Approve audit</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
   }
   if (M.type === 'remove' || M.type === 'rmask'){
     const m = member(M.id), u = user(m.userId), ask = M.type === 'rmask';
@@ -1540,13 +1566,17 @@ const ACT = {
     Object.assign(m.ag, {status:'countersigned', counterAt:Date.now(), counterBy:S.session}); log(U.pid, 'agreement', `Approved ${user(m.userId).name}’s agreement`, {memberId:m.id}); done(`${user(m.userId).name} is onboarded`); },
   'inv-step': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i || !stepOk(i, myRole()) || i.by === S.session) return toast('This invoice has already moved on.');
     if (i.status === 'submitted' && i.unit === 'day'){ const ok = S.days.filter(d => d.pid === i.pid && d.confirmedAt && d.date >= i.from && d.date <= i.to && d.att.includes(i.by)).length;
-      if (ok < i.qty) return toast(`Only ${ok} confirmed day${ok === 1 ? '' : 's'} at the gate in this period, but the invoice claims ${i.qty}. Confirm the attendance first, or reject it.`); }
-    const nxt = {submitted:'audited', audited:'hop_ok', hop_ok:'approved'}[i.status], now = Date.now();
-    if (nxt === 'audited') Object.assign(i, {auditedBy:S.session, auditedAt:now}); else if (nxt === 'hop_ok') Object.assign(i, {hopBy:S.session, hopAt:now}); else Object.assign(i, {approvedBy:S.session, approvedAt:now});
-    i.status = nxt; log(U.pid, 'invoice', `${{audited:'Audited', hop_ok:'HOP confirmed', approved:'Approved for payment'}[nxt]} ${i.no} (${user(i.by).name})`, {invoiceId:i.id});
+      if (ok < i.qty) return toast(`Only ${ok} confirmed day${ok === 1 ? '' : 's'} at the gate in this period, but the invoice claims ${i.qty}. Confirm the attendance first, or reject it.`);
+      applyOt(i); }
+    if (i.status === 'submitted' && !el.dataset.head){ U.modal = {type:'audit', id:i.id}; return renderLayer(); }
+    const nxt = {submitted:'audited', audited:'pc_ok', pc_ok:'hop_ok', hop_ok:'approved'}[i.status], now = Date.now();
+    if (nxt === 'audited'){ i.head = el.dataset.head; U.modal = null; }
+    if (nxt === 'audited') Object.assign(i, {auditedBy:S.session, auditedAt:now}); else if (nxt === 'pc_ok') Object.assign(i, {pcBy:S.session, pcAt:now}); else if (nxt === 'hop_ok') Object.assign(i, {hopBy:S.session, hopAt:now}); else Object.assign(i, {approvedBy:S.session, approvedAt:now});
+    i.status = nxt; log(U.pid, 'invoice', `${{audited:'Audited', pc_ok:'Production Controller checked', hop_ok:'HOP confirmed', approved:'Approved for payment'}[nxt]} ${i.no} (${user(i.by).name})${nxt === 'audited' ? ' · cost head ' + i.head : ''}`, {invoiceId:i.id});
     done(`${i.no}: ${INV[nxt][0].toLowerCase()}`); },
   'att-confirm': el => { const d = S.days.find(x => x.id === el.dataset.id); if (!d || !can.confirmAtt(myRole())) return;
     Object.assign(d, {confirmedAt:Date.now(), confirmedBy:S.session, status:d.att.length ? 'shot' : d.status}); log(U.pid, 'schedule', `Confirmed attendance for ${fmtD(d.date)}: ${d.att.length} checked in`); done(`Attendance for ${fmtD(d.date)} confirmed`); },
+  'inv-doc': el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.'); const w = window.open(); if (w) w.document.write(`<iframe src="${i.doc}" style="border:0;width:100%;height:100vh"></iframe>`); },
   'unlock-ask': el => { U.modal = {type:'unlockask', id:el.dataset.id || null, date:el.dataset.date || S.days.find(x => x.id === el.dataset.id)?.date}; renderLayer(); },
   cdate: el => { U.cdate = el.dataset.id; U.view = 'costs'; U.drawer = null; render(); },
   'cost-template': () => costTemplate(),
@@ -1601,8 +1631,8 @@ function invStep(id, from, to, text){
 function calcInv(){
   const box = $('#rv-calc'); if (!box) return;
   const m = memberIn(U.pid, S.session), qty = +val('rv-qty') || 0, g = +val('rv-gst') || 0;
-  const amount = Math.round(qty * m.rate), gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
-  box.innerHTML = `<span>${qty} × ${inr(m.rate)}</span><span class="num">${inr(amount)}</span><span>GST ${g}%</span><span class="num">${inr(gst)}</span><span>TDS ${TDS[m.tds].rate}% on fee</span><span class="num">−${inr(tds)}</span><span class="tot">You receive</span><span class="num tot">${inr(amount + gst - tds)}</span>`;
+  const o = otFor(U.pid, S.session, val('rv-from'), val('rv-to'), m.rate, m.unit), amount = Math.round(qty * m.rate) + o.amt, gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
+  box.innerHTML = `<span>${qty} × ${inr(m.rate)}</span><span class="num">${inr(amount - o.amt)}</span>${o.amt ? `<span>Overtime ${hm(o.min)} <span class="muted">· from daily reports</span></span><span class="num">${inr(o.amt)}</span>` : ''}<span>GST ${g}%</span><span class="num">${inr(gst)}</span><span>TDS ${TDS[m.tds].rate}% on fee</span><span class="num">−${inr(tds)}</span><span class="tot">You receive</span><span class="num tot">${inr(amount + gst - tds)}</span>`;
   const a = $('#rv-att');
   if (a && m.unit === 'day'){ const n = attIn(U.pid, S.session, val('rv-from'), val('rv-to'));
     a.innerHTML = qty > n ? `<span class="flag">Gate check-ins show ${n} day${n === 1 ? '' : 's'} for these dates.</span> The Auditor checks this against confirmed attendance.` : `<span style="color:var(--good)">✓ Matches gate check-ins: ${n} day${n === 1 ? '' : 's'}.</span>`; }
@@ -1680,13 +1710,16 @@ const FORMS = {
     const sig = $('#sig').toDataURL('image/png'), text = m.ag.text || agText(m), hash = await sha256(text + '|' + name + '|' + sig);
     Object.assign(m.ag, {status:'signed', signedAt:Date.now(), signedName:name, sig, text, hash});
     log(U.pid, 'agreement', 'Signed the engagement agreement', {memberId:m.id}); done('Signed. The CFO or Commercial Head approves it next.'); },
-  raise: () => { const m = memberIn(U.pid, S.session), no = val('rv-no'), qty = +val('rv-qty'), from = val('rv-from'), to = val('rv-to'), g = +val('rv-gst') || 0;
+  raise: async () => { const m = memberIn(U.pid, S.session), no = val('rv-no'), qty = +val('rv-qty'), from = val('rv-from'), to = val('rv-to'), g = +val('rv-gst') || 0, file = $('#rv-doc')?.files?.[0];
+    if (file && file.size > 5 * 1048576) return err('rv-err', 'The invoice file is over 5 MB. Save a smaller PDF or photo.');
+    if (g > 0 && !file) return err('rv-err', 'Upload your GST invoice (PDF or photo): Accounts needs it to claim the GST.');
+    const doc = file ? await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(''); r.readAsDataURL(file); }) : '';
     if (!no) return err('rv-err', 'Enter your invoice number.');
     if (S.invoices.some(i => i.pid === U.pid && i.by === S.session && i.no.toLowerCase() === no.toLowerCase())) return err('rv-err', 'You’ve already used that invoice number on this production.');
     if (!(qty > 0)) return err('rv-err', `Enter the ${QTY[m.unit].toLowerCase()}.`); if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
-    const amount = Math.round(qty * m.rate), gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
-    const i = {id:uid('i'), pid:U.pid, memberId:m.id, by:S.session, dept:m.dept, no, from, to, qty, rate:m.rate, unit:m.unit, desc:val('rv-desc') || `${m.job}, ${fmtD(from)} to ${fmtD(to)}`, amount, gstRate:g, gst, tdsKey:m.tds, tds, payable:amount + gst - tds, status:'submitted', at:Date.now(), utr:'', reason:''};
-    S.invoices.push(i); log(U.pid, 'invoice', `Submitted invoice ${no} for ${inr(amount + gst)}`, {invoiceId:i.id}); U.modal = null; done(`Invoice ${no} submitted; the Auditor checks it first`); },
+    const o = otFor(U.pid, S.session, from, to, m.rate, m.unit), amount = Math.round(qty * m.rate) + o.amt, gst = Math.round(amount * g / 100), tds = Math.round(amount * TDS[m.tds].rate / 100);
+    const i = {otMinutes:o.min, otAmount:o.amt, id:uid('i'), pid:U.pid, memberId:m.id, by:S.session, dept:m.dept, no, from, to, qty, rate:m.rate, unit:m.unit, desc:val('rv-desc') || `${m.job}, ${fmtD(from)} to ${fmtD(to)}`, amount, gstRate:g, gst, tdsKey:m.tds, tds, payable:amount + gst - tds, status:'submitted', at:Date.now(), utr:'', reason:'', doc, docName:file?.name || ''};
+    S.invoices.push(i); log(U.pid, 'invoice', `Submitted invoice ${no} for ${inr(amount + gst)}${o.amt ? ` (incl. ${inr(o.amt)} overtime)` : ''}`, {invoiceId:i.id}); U.modal = null; done(`Invoice ${no} submitted; the Auditor checks it first`); },
   pay: () => { const i = S.invoices.find(x => x.id === U.modal.id), v = val('md-v');
     if (v.length < 6) return err('md-err', 'Enter the bank reference (UTR) from the payment.');
     i.status = 'paid'; i.utr = v; i.paidAt = Date.now(); log(U.pid, 'payment', `Marked ${i.no} paid · UTR ${v}`, {invoiceId:i.id}); U.modal = null; done(`${i.no} marked paid`); },
@@ -1706,6 +1739,7 @@ const FORMS = {
     if (!U.modal.yes && note.length < 4) return err('ud-err', 'Say why, so the person who asked knows.');
     Object.assign(q, U.modal.yes ? {status:'approved', decidedBy:S.session, decidedAt:Date.now(), expiresAt:Date.now() + 864e5, note} : {status:'declined', decidedBy:S.session, decidedAt:Date.now(), note});
     log(U.pid, 'schedule', U.modal.yes ? 'Allowed changes to a locked day for 24 hours' : `Refused changes to a locked day: ${note}`); U.modal = null; done(q.status === 'approved' ? 'Allowed for 24 hours' : 'Refused'); },
+  audit: () => ACT['inv-step']({dataset:{id:U.modal.id, head:val('au-head')}}),
   costadd: () => { const c = costForm(); if (!c) return;
     (S.costs ||= []).push({id:uid('c'), pid:U.pid, ...c, source:'manual', batch:null, by:S.session, at:Date.now()}); U.chead = c.head; U.cmode = c.mode;
     log(U.pid, 'cost', `Added a cost line on ${fmtD(c.date)}: ${c.head}${c.payee ? ' · ' + c.payee : ''} ${inr(c.amount)}`); done(`${inr(c.amount)} added to ${c.head}`); },
@@ -1890,10 +1924,10 @@ async function liveDB(cfg){
       }
     },
     rpc: async (name, args = {}) => unwrap(await sb.rpc(name, args)),
-    async upload(path, blob){ unwrap(await sb.storage.from('kyc').upload(path, blob, { contentType: blob.type, upsert: false })); },
-    async signed(paths){
+    async upload(path, blob, bucket = 'kyc'){ unwrap(await sb.storage.from(bucket).upload(path, blob, { contentType: blob.type, upsert: false })); },
+    async signed(paths, bucket = 'kyc'){
       if (!paths.length) return {};
-      const out = unwrap(await sb.storage.from('kyc').createSignedUrls(paths, 3600));
+      const out = unwrap(await sb.storage.from(bucket).createSignedUrls(paths, 3600));
       return Object.fromEntries(out.filter(x => x.signedUrl).map(x => [x.path, x.signedUrl]));
     },
     // live updates: new notifications for this person, and a signal whenever one of their productions changes
@@ -1969,7 +2003,7 @@ async function load(){
   next.invoices = invs.map(i => ({id:i.id, pid:i.production_id, memberId:i.crew_id, by:i.user_id, dept:i.dept || '', no:i.no, from:i.period_from, to:i.period_to, qty:+i.qty, rate:+i.rate, unit:i.unit,
     desc:i.descr || '', amount:+i.amount, gstRate:+i.gst_rate, gst:+i.gst, tdsKey:i.tds_key, tds:+i.tds, payable:+i.payable, status:i.status, at:ts(i.submitted_at),
     approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment,
-    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '',
+    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '', otMinutes:+i.ot_minutes || 0, otAmount:+i.ot_amount || 0, pcBy:i.pc_by, pcAt:ts(i.pc_at), head:i.cost_head || '', doc:i.doc_path || '', docName:i.doc_path ? 'View the uploaded invoice' : '',
     auditedBy:i.audited_by, auditedAt:ts(i.audited_at), hopBy:i.hop_by, hopAt:ts(i.hop_at), approvedBy:i.approved_by}));
   next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '', confirmedAt:ts(d.att_confirmed_at), confirmedBy:d.att_confirmed_by,
     dpr:d.dpr_at ? {call:d.act_call || '', first:d.first_shot || '', lunch:d.lunch_min, wrap:d.act_wrap || '', planned:d.scenes_planned, shot:d.scenes_shot, minutes:d.minutes_shot == null ? null : +d.minutes_shot, delay:d.delay || '', by:d.dpr_by, at:ts(d.dpr_at)} : null,
@@ -2030,7 +2064,11 @@ Object.assign(ACT, {
   'send-ag': async el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
     if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
-  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id), r = await call('advance_invoice', {p_id:el.dataset.id}); if (r === FAIL) return; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id);
+    if (i?.status === 'submitted' && el.dataset.head === undefined){ U.modal = {type:'audit', id:i.id}; return renderLayer(); }
+    const r = await call('advance_invoice', {p_id:el.dataset.id, p_head:el.dataset.head || null}, 'au-err'); if (r === FAIL) return; U.modal = null; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'inv-doc': async el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.');
+    const w = window.open('', '_blank'); try { const u = (await DB.signed([i.doc], 'invoices'))[i.doc]; if (!u) throw new Error('You can’t open this file.'); if (w) w.location = u; else location.href = u; } catch (e) { w?.close(); toast(friendly(e.message)); } },
   'cost-del': async el => { if (await call('delete_cost_entry', {p_id:el.dataset.id}) !== FAIL) done('Line deleted'); },
   'cost-undo': async el => { const n = await call('undo_cost_import', {p_batch:el.dataset.id}); if (n !== FAIL) done(`Import undone · ${n} lines removed`); },
   'cost-import': async () => { const rows = U.modal.rows.filter(r => !r.errs.length);
@@ -2102,8 +2140,14 @@ Object.assign(FORMS, {
     if (await call('sign_agreement', {p_crew:m.id, p_name:name, p_signature:$('#sig').toDataURL('image/png')}, 'sg-err') !== FAIL) done('Signed. The CFO or Commercial Head approves it next.'); },
   raise: async () => { if (!v('rv-no')) return err('rv-err', 'Enter your invoice number.'); const from = v('rv-from'), to = v('rv-to');
     if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
-    if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:+v('rv-gst') || 0, desc:v('rv-desc')}}, 'rv-err') === FAIL) return;
-    U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted to your HOD`); },
+    const file = $('#rv-doc')?.files?.[0], g = +v('rv-gst') || 0; let doc = '';
+    if (file && file.size > 5 * 1048576) return err('rv-err', 'The invoice file is over 5 MB. Save a smaller PDF or photo.');
+    if (g > 0 && !file) return err('rv-err', 'Upload your GST invoice (PDF or photo): Accounts needs it to claim the GST.');
+    if (file){ doc = `${S.session}/inv-${Date.now()}.${(file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      err('rv-err', 'Uploading your invoice…'); try { await DB.upload(doc, file, 'invoices'); } catch (e) { return err('rv-err', friendly(e.message)); } }
+    if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:g, desc:v('rv-desc'), doc_path:doc}}, 'rv-err') === FAIL) return;
+    U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted; the Auditor checks it first`); },
+  audit: async () => ACT['inv-step']({dataset:{id:U.modal.id, head:v('au-head')}}),
   pay: async () => { if (await call('pay_invoices', {p_production:U.pid, p_ids:[U.modal.id], p_ref:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; done('Marked paid'); },
   remove: async () => { const r = await call('remove_person', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err'); if (r === FAIL) return;
     U.modal = null; U.drawer = null; done(r === 'deleted' ? 'Deleted' : 'Removed from the production; their records are kept'); },

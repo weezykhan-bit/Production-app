@@ -204,6 +204,8 @@ insert into shoot_days (production_id, day, status, att_confirmed_at) select :'p
 insert into checkins (day_id, user_id) select id, :'imran' from shoot_days where day between '2026-10-01' and '2026-10-06';
 select as_user(:'manoj'); set role authenticated;
 select ok(advance_invoice(:'inv') = 'audited', 'audited against six confirmed days');
+select ok(advance_invoice(:'inv') = 'pc_ok', 'Production Controller step (the LP, with no controller on the show)');
+select ok((select cost_head from crew_invoices where id = :'inv') is not null, 'the audit mapped the invoice to a cost head');
 select ok(advance_invoice(:'inv') = 'hop_ok', 'Head of Production step (the LP, with no HOP on the show)');
 select refused(format($$select advance_invoice(%L)$$, :'inv'), 'Commercial Head or a Commercial Manager');
 reset role;

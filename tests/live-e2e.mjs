@@ -116,11 +116,16 @@ try {
   await fill({'rv-from':await ev(() => isoD(dayOff(-6))), 'rv-to':await ev(() => isoD(dayOff(0)))});
   await p.waitForTimeout(100); const qty = await p.inputValue('#rv-qty');
   if (qty !== '1') errs.push('invoice days not filled from check-ins: ' + qty);
-  await p.fill('#rv-no', 'IS-001'); await click('form[data-form=raise] button[type=submit]');
+  await p.fill('#rv-no', 'IS-001'); await p.setInputFiles('#rv-doc', {name:'IS-001.pdf', mimeType:'application/pdf', buffer:Buffer.from('%PDF-1.4 test invoice')}); await click('form[data-form=raise] button[type=submit]'); await p.waitForTimeout(300);
   if (await ev(() => S.invoices.length) !== 1) throw new Error('invoice not submitted: ' + await text('#rv-err').catch(() => ''));
+  if (!(await ev(() => S.invoices[0].doc))) errs.push('uploaded invoice file not on the invoice'); else ok('invoice file uploaded with the invoice');
   ok('invoice submitted for ' + qty + ' day'); await signOut();
   // the audit step waits for confirmed attendance
-  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('main [data-act=inv-step]'); await p.waitForTimeout(300);
+  await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=invoices]'); await click('main [data-act=inv-step]'); await p.waitForTimeout(200);
+  if (!(await p.$('form[data-form=audit] #au-head'))) errs.push('audit step does not ask for the cost head');
+  await click('form[data-form=audit] button[type=submit]'); await p.waitForTimeout(300);
+  if (!/confirmed day/.test(await text('#au-err').catch(() => ''))) errs.push('audit refusal not shown: ' + await text('#au-err').catch(() => ''));
+  await p.keyboard.press('Escape');
   if (await ev(() => S.invoices[0].status) !== 'submitted') errs.push('audited without confirmed attendance'); else ok('audit step refused until attendance is confirmed');
   await signOut();
   await signIn('fowzan'); await click('[data-act=open-project]');
@@ -130,9 +135,11 @@ try {
   if (!(await text('.drawer')).includes('Locked')) errs.push('confirmed day does not show as locked');
   await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
   await click('.rail [data-id=invoices]');
-  for (const want of ['audited','hop_ok','approved']){ await click('main [data-act=inv-step]'); await p.waitForTimeout(200); if (await ev(() => S.invoices[0].status) !== want) throw new Error('chain stopped before ' + want + ': ' + await ev(() => S.invoices[0].status)); }
-  await click('main tbody tr'); if (!(await p.$('.drawer .chain li.done:nth-child(4)'))) errs.push('chain tracker missing in the invoice'); await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
-  ok('attendance confirmed; invoice audited, HOP-confirmed and approved through the chain');
+  await click('main [data-act=inv-step]'); await p.selectOption('#au-head', 'Camera'); await click('form[data-form=audit] button[type=submit]'); await p.waitForTimeout(300);
+  if (await ev(() => S.invoices[0].status + ' ' + S.invoices[0].head) !== 'audited Camera') throw new Error('audit with cost head failed: ' + await ev(() => S.invoices[0].status) + ' ' + await text('#au-err').catch(() => ''));
+  for (const want of ['pc_ok','hop_ok','approved']){ await click('main [data-act=inv-step]'); await p.waitForTimeout(200); if (await ev(() => S.invoices[0].status) !== want) throw new Error('chain stopped before ' + want + ': ' + await ev(() => S.invoices[0].status)); }
+  await click('main tbody tr'); if (!(await p.$('.drawer .chain li.done:nth-child(5)'))) errs.push('chain tracker missing in the invoice'); await p.keyboard.press('Escape'); await ev(() => { U.drawer = null; renderLayer(); });
+  ok('attendance confirmed; invoice audited (mapped to Camera), controller-checked, HOP-confirmed and approved through the chain');
   // deduction and remark before payment
   await click('main [data-act=adjust]'); await p.selectOption('#dd-t0', 'advance'); await fill({'dd-a0':50, 'dd-n0':'Advance paid on set'}); await p.fill('#dd-rem', 'Return the walkie');
   if (!(await text('#dd-calc')).includes('4,405')) errs.push('deduction preview wrong: ' + await text('#dd-calc'));

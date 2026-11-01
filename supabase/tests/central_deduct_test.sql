@@ -34,7 +34,7 @@ reset role;
 insert into shoot_days (production_id, day, status, att_confirmed_at) select :'pid', d::date, 'shot', now() from generate_series('2026-10-07'::date, '2026-10-08'::date, '1 day') d;
 insert into checkins (day_id, user_id) select id, :'imran' from shoot_days where day between '2026-10-07' and '2026-10-08';
 select as_user(:'manoj'); set role authenticated;
-select advance_invoice(:'inv'); select advance_invoice(:'inv');
+select advance_invoice(:'inv'); select advance_invoice(:'inv'); select advance_invoice(:'inv');
 reset role;
 select as_user('11111111-1111-1111-1111-111111111111'); set role authenticated;
 select advance_invoice(:'inv');

@@ -24,10 +24,10 @@ async function liveDB(cfg){
       }
     },
     rpc: async (name, args = {}) => unwrap(await sb.rpc(name, args)),
-    async upload(path, blob){ unwrap(await sb.storage.from('kyc').upload(path, blob, { contentType: blob.type, upsert: false })); },
-    async signed(paths){
+    async upload(path, blob, bucket = 'kyc'){ unwrap(await sb.storage.from(bucket).upload(path, blob, { contentType: blob.type, upsert: false })); },
+    async signed(paths, bucket = 'kyc'){
       if (!paths.length) return {};
-      const out = unwrap(await sb.storage.from('kyc').createSignedUrls(paths, 3600));
+      const out = unwrap(await sb.storage.from(bucket).createSignedUrls(paths, 3600));
       return Object.fromEntries(out.filter(x => x.signedUrl).map(x => [x.path, x.signedUrl]));
     },
     // live updates: new notifications for this person, and a signal whenever one of their productions changes
@@ -103,7 +103,7 @@ async function load(){
   next.invoices = invs.map(i => ({id:i.id, pid:i.production_id, memberId:i.crew_id, by:i.user_id, dept:i.dept || '', no:i.no, from:i.period_from, to:i.period_to, qty:+i.qty, rate:+i.rate, unit:i.unit,
     desc:i.descr || '', amount:+i.amount, gstRate:+i.gst_rate, gst:+i.gst, tdsKey:i.tds_key, tds:+i.tds, payable:+i.payable, status:i.status, at:ts(i.submitted_at),
     approvedAt:ts(i.approved_at), paidAt:ts(i.paid_at), utr:i.utr || '', reason:i.reason || '', tp:i.tally_purchase, tpay:i.tally_payment,
-    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '',
+    deductions:i.deductions || [], deduction:+i.deduction || 0, remarks:i.remarks || '', otMinutes:+i.ot_minutes || 0, otAmount:+i.ot_amount || 0, pcBy:i.pc_by, pcAt:ts(i.pc_at), head:i.cost_head || '', doc:i.doc_path || '', docName:i.doc_path ? 'View the uploaded invoice' : '',
     auditedBy:i.audited_by, auditedAt:ts(i.audited_at), hopBy:i.hop_by, hopAt:ts(i.hop_at), approvedBy:i.approved_by}));
   next.days = days.map(d => ({id:d.id, pid:d.production_id, date:d.day, status:d.status, location:d.location || '—', call:d.call_time, wrap:d.wrap_time, epFrom:d.ep_from, epTo:d.ep_to, note:d.note || '', confirmedAt:ts(d.att_confirmed_at), confirmedBy:d.att_confirmed_by,
     dpr:d.dpr_at ? {call:d.act_call || '', first:d.first_shot || '', lunch:d.lunch_min, wrap:d.act_wrap || '', planned:d.scenes_planned, shot:d.scenes_shot, minutes:d.minutes_shot == null ? null : +d.minutes_shot, delay:d.delay || '', by:d.dpr_by, at:ts(d.dpr_at)} : null,
@@ -164,7 +164,11 @@ Object.assign(ACT, {
   'send-ag': async el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
     if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
-  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id), r = await call('advance_invoice', {p_id:el.dataset.id}); if (r === FAIL) return; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id);
+    if (i?.status === 'submitted' && el.dataset.head === undefined){ U.modal = {type:'audit', id:i.id}; return renderLayer(); }
+    const r = await call('advance_invoice', {p_id:el.dataset.id, p_head:el.dataset.head || null}, 'au-err'); if (r === FAIL) return; U.modal = null; done(`${i?.no || 'Invoice'}: ${INV[r][0].toLowerCase()}`); },
+  'inv-doc': async el => { const i = S.invoices.find(x => x.id === el.dataset.id); if (!i?.doc) return toast('No invoice file.');
+    const w = window.open('', '_blank'); try { const u = (await DB.signed([i.doc], 'invoices'))[i.doc]; if (!u) throw new Error('You can’t open this file.'); if (w) w.location = u; else location.href = u; } catch (e) { w?.close(); toast(friendly(e.message)); } },
   'cost-del': async el => { if (await call('delete_cost_entry', {p_id:el.dataset.id}) !== FAIL) done('Line deleted'); },
   'cost-undo': async el => { const n = await call('undo_cost_import', {p_batch:el.dataset.id}); if (n !== FAIL) done(`Import undone · ${n} lines removed`); },
   'cost-import': async () => { const rows = U.modal.rows.filter(r => !r.errs.length);
@@ -236,8 +240,14 @@ Object.assign(FORMS, {
     if (await call('sign_agreement', {p_crew:m.id, p_name:name, p_signature:$('#sig').toDataURL('image/png')}, 'sg-err') !== FAIL) done('Signed. The CFO or Commercial Head approves it next.'); },
   raise: async () => { if (!v('rv-no')) return err('rv-err', 'Enter your invoice number.'); const from = v('rv-from'), to = v('rv-to');
     if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
-    if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:+v('rv-gst') || 0, desc:v('rv-desc')}}, 'rv-err') === FAIL) return;
-    U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted to your HOD`); },
+    const file = $('#rv-doc')?.files?.[0], g = +v('rv-gst') || 0; let doc = '';
+    if (file && file.size > 5 * 1048576) return err('rv-err', 'The invoice file is over 5 MB. Save a smaller PDF or photo.');
+    if (g > 0 && !file) return err('rv-err', 'Upload your GST invoice (PDF or photo): Accounts needs it to claim the GST.');
+    if (file){ doc = `${S.session}/inv-${Date.now()}.${(file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      err('rv-err', 'Uploading your invoice…'); try { await DB.upload(doc, file, 'invoices'); } catch (e) { return err('rv-err', friendly(e.message)); } }
+    if (await call('submit_crew_invoice', {p_production:U.pid, p:{no:v('rv-no'), from, to, qty:+v('rv-qty'), gst_rate:g, desc:v('rv-desc'), doc_path:doc}}, 'rv-err') === FAIL) return;
+    U.modal = null; done(`Invoice ${v('rv-no') || ''} submitted; the Auditor checks it first`); },
+  audit: async () => ACT['inv-step']({dataset:{id:U.modal.id, head:v('au-head')}}),
   pay: async () => { if (await call('pay_invoices', {p_production:U.pid, p_ids:[U.modal.id], p_ref:v('md-v')}, 'md-err') === FAIL) return; U.modal = null; done('Marked paid'); },
   remove: async () => { const r = await call('remove_person', {p_crew:U.modal.id, p_reason:v('rm-why')}, 'rm-err'); if (r === FAIL) return;
     U.modal = null; U.drawer = null; done(r === 'deleted' ? 'Deleted' : 'Removed from the production; their records are kept'); },

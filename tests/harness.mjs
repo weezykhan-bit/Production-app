@@ -27,6 +27,8 @@ await db.exec(read('supabase/migrations/20261105100000_schedule_alerts_and_fixes
 await db.exec(read('supabase/migrations/20261106100000_chain_locks_tasks.sql'));
 await db.exec(read('supabase/migrations/20261107100000_daily_costs_dpr.sql'));
 await db.exec(read('supabase/migrations/20261108100000_view_lockdown.sql'));
+await db.exec(read('supabase/migrations/20261109100000_overtime.sql'));
+await db.exec(read('supabase/migrations/20261110100000_controller_and_invoice_files.sql'));
 // scripted runs start with the welcome video already seen; a test turns it back on where it checks it
 await db.exec('alter table profiles alter column tour_seen_at set default now(); update profiles set tour_seen_at = now()');
 const ident = s => { if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error('bad name ' + s); return s; };
