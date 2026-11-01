@@ -65,6 +65,13 @@ select id as lunch from cost_entries where item = 'Lunch' \gset
 select update_cost_entry(:'lunch', '{"qty":60}');
 select ok((select amount from cost_entries where id = :'lunch') = 10800, 'changing qty recomputes the amount');
 reset role;
+-- a Head of Department holding petty cash sees only the lines paid from their own float
+reset role;
+update cost_entries set petty_holder = :'asha', mode = 'petty' where id = :'lunch';
+select as_user(:'asha'); set role authenticated;
+select ok((select count(*) from cost_entries) = 1 and (select id from cost_entries) = :'lunch', 'a petty cash holder sees only their own spending');
+reset role;
+update cost_entries set petty_holder = null, mode = 'bank' where id = :'lunch';
 -- the auditor sees and enters; locks follow attendance
 select as_user(:'aud'); set role authenticated;
 select ok((select count(*) from cost_entries) = 2, 'the Auditor sees the day’s costs');

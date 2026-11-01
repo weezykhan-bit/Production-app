@@ -159,8 +159,8 @@ select ok((join_production(:'code0', 'vendor') ->> 'ok')::boolean, 'a vendor joi
 select ok((select role from crew) = 'vendor', 'joined as a vendor');
 reset role;
 select as_user(:'manoj'); set role authenticated;
-select plan_days(:'pid', jsonb_build_object('from', today_ist() - 6, 'to', today_ist() + 6, 'skip_sundays', true, 'eps_per_day', 1, 'start_ep', 300, 'location', 'Floor 3')) as n \gset
-select ok(:n between 10 and 11, 'planned a fortnight without Sundays');
+select plan_days(:'pid', jsonb_build_object('from', today_ist() - 6, 'to', today_ist() + 6, 'skip_sundays', false, 'eps_per_day', 1, 'start_ep', 300, 'location', 'Floor 3')) as n \gset
+select ok(:n = 13, 'planned 13 days in a row');   -- every day, so the checks below work on any weekday
 select refused(format($$select plan_days(%L, %L)$$, :'pid', jsonb_build_object('from', today_ist() - 6, 'to', today_ist() - 6)), 'already on the schedule');
 select id as pastday from shoot_days where day <= today_ist() and day >= today_ist() - 1 order by day desc limit 1 \gset
 select id as futureday from shoot_days where day > today_ist() order by day limit 1 \gset

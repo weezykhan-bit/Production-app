@@ -100,6 +100,8 @@ create index cost_entries_prod_date_idx on public.cost_entries (production_id, o
 create index cost_entries_batch_idx on public.cost_entries (batch) where batch is not null;
 alter table public.cost_entries enable row level security;
 create policy "production office" on public.cost_entries for select using (cost_role(production_id));
+-- whoever holds petty cash sees what was spent from their own float, so their balance is right
+create policy "petty cash holder" on public.cost_entries for select using (petty_holder = (select auth.uid()));
 
 create table public.petty_floats (
   id            uuid primary key default gen_random_uuid(),
