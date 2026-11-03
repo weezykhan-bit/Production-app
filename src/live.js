@@ -89,10 +89,13 @@ const ts = v => v ? new Date(v).getTime() : null;
 let loading = null;
 function reload(){ loading = loading || load().finally(() => loading = null); return loading; }
 async function load(){
-  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl, costs, floats] = await Promise.all([
+  // agreement templates and questions arrive with migration 20261113; until then the screens simply show none
+  const opt_ = t => DB.select(t).catch(() => []);
+  const [ci, admins, prods, crew, people, invs, days, checks, exps, acts, notes, rems, tks, tas, tus, unl, costs, floats, tpls, tplv, ptpl, agv, agq, agn] = await Promise.all([
     DB.rpc('company_info'), DB.select('company_admins'), DB.select('productions'), DB.select('crew'), DB.select('people'),
     DB.select('crew_invoices'), DB.select('shoot_days'), DB.select('checkins'), DB.select('tally_exports'), DB.select('activity', {order:'id', desc:true, limit:2000}), DB.select('notifications', {order:'id', desc:true, limit:60}), DB.select('removal_requests'),
-    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks'), DB.select('cost_entries'), DB.select('petty_floats')]);
+    DB.select('tasks'), DB.select('task_assignees'), DB.select('task_updates', {order:'id'}), DB.select('day_unlocks'), DB.select('cost_entries'), DB.select('petty_floats'),
+    opt_('agreement_templates'), opt_('agreement_template_versions'), opt_('production_templates'), opt_('agreement_versions'), opt_('agreement_queries'), opt_('agreement_query_notes')]);
   // signed links for photos and documents, reused for 50 minutes
   const now = Date.now(), want = [...new Set(people.flatMap(p => [p.photo_path, p.aadhaar_path, p.pan_path]).filter(Boolean))].filter(x => !(urlCache[x]?.until > now));
   if (want.length){ try { const m = await DB.signed(want); for (const [k, v] of Object.entries(m)) urlCache[k] = {url:v, until:now + 50 * 6e4}; } catch {} }
@@ -110,7 +113,13 @@ async function load(){
   next.members = crew.map(c => ({id:c.id, pid:c.production_id, userId:c.user_id || 'invite:' + c.id, pending:!c.user_id, role:c.role, kind:c.kind,
     dept:c.dept || '', job:c.job || '', rate:c.rate ? +c.rate : null, unit:c.unit, joining:c.joining || '', end:c.end_date || '', tds:c.tds, terms:c.terms,
     code:c.crew_code, joinedAt:ts(c.joined_at), active:c.active, removed:!!c.removed_at, removedAt:ts(c.removed_at), removedBy:c.removed_by, removedReason:c.removed_reason || '',
-    ag:{status:c.ag_status, text:c.ag_text, sentAt:ts(c.ag_sent_at), signedAt:ts(c.ag_signed_at), signedName:c.ag_signed_name, sig:c.ag_signature, hash:c.ag_hash, counterAt:ts(c.ag_counter_at), counterBy:c.ag_counter_by}}));
+    ag:{status:c.ag_status, text:c.ag_text, sentAt:ts(c.ag_sent_at), signedAt:ts(c.ag_signed_at), signedName:c.ag_signed_name, sig:c.ag_signature, hash:c.ag_hash, counterAt:ts(c.ag_counter_at), counterBy:c.ag_counter_by,
+      version:c.ag_version || null, template:c.ag_template || null, versions:agv.filter(x => x.crew_id === c.id).map(x => ({version:x.version, body:x.body, note:x.note || '', by:x.by, at:ts(x.at)})).sort((a, b) => a.version - b.version)}}));
+  next.templates = tpls.map(t => ({id:t.id, name:t.name, kind:t.kind, body:t.body, version:t.version, source:t.source, fileName:t.file_name || '', approvedAt:ts(t.approved_at), approvedBy:t.approved_by,
+    archived:t.archived, by:t.updated_by, at:ts(t.updated_at), history:tplv.filter(x => x.template_id === t.id).map(x => ({version:x.version, by:x.by, at:ts(x.at)}))}));
+  next.prodTemplates = ptpl.map(x => ({pid:x.production_id, kind:x.kind, templateId:x.template_id}));
+  next.agQueries = agq.map(q => ({id:q.id, memberId:q.crew_id, pid:q.production_id, version:q.version, clause:q.clause, excerpt:q.excerpt || '', body:q.body, status:q.status, by:q.by, at:ts(q.at),
+    resolvedBy:q.resolved_by, resolvedAt:ts(q.resolved_at), outcome:q.outcome || '', notes:agn.filter(n => n.query_id === q.id).sort((a, b) => a.id - b.id).map(n => ({id:String(n.id), by:n.by, at:ts(n.at), body:n.body}))}));
   // people invited but not joined yet show under the name they were invited with
   crew.filter(c => !c.user_id).forEach(c => next.users.push({id:'invite:' + c.id, username:'', name:c.invite_name, title:'crew', phone:c.invite_phone || '', email:c.invite_email || '',
     photo:'', legal:'', pan:'', gstin:'', address:'', bank:{}, emergency:'', aadhaar4:'', docs:{}, consent:false, ready:{profile:false, docs:false}, pending:true}));
@@ -182,7 +191,18 @@ Object.assign(ACT, {
   forgot: () => { U.auth = 'forgot'; render(); },
   nudge: async el => { const m = member(el.dataset.id); if (await call('remind', {p_crew:m.id}) !== FAIL) done(`Reminder logged for ${user(m.userId).name}. Send them the production code on WhatsApp too.`); },
   'send-ag': async el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
-    if (await call('send_agreement', {p_crew:m.id, p_text:agText(m)}) !== FAIL) done(`Agreement sent to ${user(m.userId).name}`); },
+    const def = tplFor(m)?.id || ''; U.modal = {type:'send-ag', id:m.id, tpl:def, preview:def ? '' : null}; renderLayer(); if (def) ACT['sa-tpl']({value:def}); },
+  // the server fills in the template, so the preview is exactly what will be sent
+  'sa-tpl': async t => { const M = U.modal, m = member(M.id); M.tpl = t.value; const box = $('#sa-prev');
+    if (!t.value){ M.preview = agText(m); if (box) box.textContent = M.preview; return; }
+    if (box) box.textContent = 'Loading the preview…'; const r = await call('preview_agreement', {p_crew:m.id, p_template:t.value}, 'sa-err');
+    if (r === FAIL || U.modal !== M) return; M.preview = r || agText(m); const b2 = $('#sa-prev'); if (b2) b2.textContent = M.preview; },
+  'ag-withdraw': async el => { if (await call('close_agreement_query', {p_query:el.dataset.id, p_reason:null}) !== FAIL) done('Question withdrawn'); },
+  'tpl-approve': async el => { const t = tplById(el.dataset.id); if (await call('approve_template', {p_id:el.dataset.id}) !== FAIL) done(`“${t?.name || 'Template'}” approved`); },
+  'tpl-archive': async el => { const t = tplById(el.dataset.id); if (!t || !confirm(`Archive “${t.name}”? Lists using it go back to the built-in agreement.`)) return;
+    if (await call('archive_template', {p_id:t.id}) !== FAIL) done(`“${t.name}” archived`); },
+  'tpl-assign': async t => { const k = t.dataset.id; if (await call('set_production_template', {p_production:U.pid, p_kind:k, p_template:t.value || null}) === FAIL) return render();
+    done(t.value ? `${KIND_ONE[k]} agreements now use “${tplById(t.value)?.name}”` : `${KIND_ONE[k]} agreements use the built-in text`); },
   countersign: async el => { const m = member(el.dataset.id); if (await call('countersign', {p_crew:m.id}) !== FAIL) done(`${user(m.userId).name} is onboarded`); },
   'inv-step': async el => { const i = S.invoices.find(x => x.id === el.dataset.id);
     if (i?.status === 'submitted' && el.dataset.head === undefined){ U.modal = {type:'audit', id:i.id}; return renderLayer(); }
@@ -257,7 +277,23 @@ Object.assign(FORMS, {
   docs: async () => { if (await call('save_documents', {p_aadhaar4:v('dc-a4'), p_consent:$('#dc-consent').checked}, 'dc-err') === FAIL) return; if (U.modal?.type === 'profile') U.modal = null; done('Documents saved'); },
   sign: async () => { const m = memberIn(U.pid, S.session), name = v('sg-name');
     if (name.length < 2) return err('sg-err', 'Type your full name.'); if (!U.sigInk) return err('sg-err', 'Draw your signature in the box.');
-    if (await call('sign_agreement', {p_crew:m.id, p_name:name, p_signature:$('#sig').toDataURL('image/png')}, 'sg-err') !== FAIL) done('Signed. The CFO or Commercial Head approves it next.'); },
+    if (await call('sign_agreement', {p_crew:m.id, p_name:name, p_signature:$('#sig').toDataURL('image/png'), p_version:m.ag?.version || null}, 'sg-err') !== FAIL) done('Signed. The CFO or Commercial Head approves it next.'); },
+  'send-ag': async () => { const m = member(U.modal.id);
+    if (await call('send_agreement', {p_crew:m.id, p_text:agText(m), p_template:v('sa-tpl') || null}, 'sa-err') === FAIL) return; U.modal = null; done(`Agreement sent to ${user(m.userId).name}`); },
+  'ag-ask': async () => { const M = U.modal, m = member(M.id), body = v('aq-body'); if (body.length < 2) return err('aq-err', 'Write your question.');
+    const c = clauses(m.ag?.text || agText(m)).find(x => x.n === M.cl);
+    if (await call('raise_agreement_query', {p_crew:m.id, p_clause:M.cl, p_excerpt:c ? c.p.slice(0, 600) : null, p_body:body}, 'aq-err') === FAIL) return;
+    U.modal = null; done(m.userId === S.session ? 'Question sent. Legal and the production office are told.' : `${user(m.userId).name} is asked`); },
+  'ag-note': async f => { const id = f.dataset.id, body = ($('#qn-' + id)?.value || '').trim(); if (!body) return;
+    if (await call('note_agreement_query', {p_query:id, p_body:body}) !== FAIL) done('Reply sent'); },
+  'ag-revise': async () => { const m = member(U.modal.id), pick = [...document.querySelectorAll('input[name=ar-q]:checked')].map(x => x.value);
+    const r = await call('revise_agreement', {p_crew:m.id, p_text:$('#ar-text').value, p_note:v('ar-note'), p_resolve:pick}, 'ar-err'); if (r === FAIL) return;
+    U.modal = null; done(`Version ${r} saved; ${user(m.userId).name} is told`); },
+  'ag-keep': async () => { if (await call('close_agreement_query', {p_query:U.modal.id, p_reason:v('ak-reason')}, 'ak-err') === FAIL) return; U.modal = null; done('Answered: the clause stays'); },
+  tpl: async () => { const M = U.modal, t = tplById(M.id), body = $('#tp-body').value, bad = tplBad(body);
+    if (bad.length) return err('tp-err', `CrewDesk can’t fill {{${bad.join('}}, {{')}}}. Use a blank from the list.`);
+    const id = await call('save_template', {p:{id:M.id || null, name:v('tp-name'), kind:v('tp-kind'), body, source:M.fileName ? 'upload' : null, file_name:M.fileName || null}}, 'tp-err'); if (id === FAIL) return;
+    U.modal = null; done(!t || tplNorm(body).trim() !== t.body.trim() ? 'Saved. Someone else approves it before it is used.' : 'Saved'); },
   raise: async () => { if (!v('rv-no')) return err('rv-err', 'Enter your invoice number.'); const from = v('rv-from'), to = v('rv-to');
     if (!from || !to || to < from) return err('rv-err', 'Check the dates: the period ends before it starts.');
     const file = $('#rv-doc')?.files?.[0], g = +v('rv-gst') || 0; let doc = '';

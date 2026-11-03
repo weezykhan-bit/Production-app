@@ -88,10 +88,29 @@ try {
   // 4. LP sends the agreement; crew signs; owner approves
   await signIn('manoj'); await click('[data-act=open-project]'); await click('.rail [data-id=people]');
   await click('tr:has-text("Imran Shaikh")'); await click('.drawer [data-act=send-ag]');
-  if (await ev(() => S.members.find(m => !m.synthetic && m.job.startsWith('1st AC')).ag.status) !== 'sent') throw new Error('agreement not sent');
+  if (!(await text('#sa-prev')).includes('ENGAGEMENT AGREEMENT')) errs.push('send dialog shows no preview');
+  await click('form[data-form=send-ag] button[type=submit]');
+  if (await ev(() => S.members.find(m => !m.synthetic && m.job.startsWith('1st AC')).ag.status) !== 'sent') throw new Error('agreement not sent: ' + await text('#sa-err').catch(() => ''));
   if (await ev(() => S.users.find(u => u.name === 'Imran Shaikh').pan)) errs.push('Line Producer can see the crew PAN');
   ok('agreement sent; LP cannot see PAN'); await signOut();
+  // 4b. Imran asks about the payment clause; signing waits; the Line Producer changes the clause (version 2)
   await signIn('imran'); await click('[data-act=open-project]');
+  await click('.cl-ask[data-cl="3"]'); await p.fill('#aq-body', 'Can I invoice weekly instead of at the end?'); await click('form[data-form=ag-ask] button[type=submit]');
+  if (await ev(() => (S.agQueries || []).filter(q => q.status === 'open').length) !== 1) throw new Error('question not raised: ' + await text('#aq-err').catch(() => ''));
+  if (await p.$('form[data-form=sign]')) errs.push('sign form shown while a question is open'); else ok('crew asked about clause 3; signing waits for the answer');
+  await signOut();
+  await signIn('manoj'); await click('[data-act=open-project]');
+  if (!(await ev(() => todos(U.pid, S.session).some(t => /^Answer Imran Shaikh’s question on clause 3/.test(t.t))))) errs.push('Line Producer has no to-do to answer the question');
+  await click('.rail [data-id=agreements]'); await click('tr:has-text("Imran Shaikh")');
+  const qid = await ev(() => S.agQueries[0].id); await p.fill(`#qn-${qid}`, 'Yes, weekly is fine. Updating clause 3.'); await click(`form[data-form=ag-note][data-id="${qid}"] button`);
+  await click('.drawer .agq.open [data-act=ag-revise]');
+  await ev(() => { const t = document.querySelector('#ar-text'); t.value = t.value.replace('3. PAYMENT. Within', '3. PAYMENT. Invoices may be raised weekly. Within'); });
+  await p.fill('#ar-note', 'Clause 3: weekly invoices allowed'); await click('form[data-form=ag-revise] button[type=submit]');
+  if (await ev(() => [memberIn(U.pid, S.users.find(u => u.name === 'Imran Shaikh').id).ag.version, S.agQueries[0].status, S.agQueries[0].notes.length].join()) !== '2,changed,1') errs.push('revision did not save: ' + await text('#ar-err').catch(() => ''));
+  else ok('Line Producer replied and changed clause 3; agreement is now version 2');
+  await signOut();
+  await signIn('imran'); await click('[data-act=open-project]');
+  if (!(await text('form[data-form=sign] button[type=submit]')).includes('version 2')) errs.push('sign button does not name version 2');
   await p.fill('#sg-name', 'Imran Shaikh'); const c = await p.$('#sig'); await c.scrollIntoViewIfNeeded(); const bb = await c.boundingBox();
   await p.mouse.move(bb.x + 20, bb.y + 40); await p.mouse.down(); await p.mouse.move(bb.x + 140, bb.y + 90, {steps:8}); await p.mouse.up();
   await click('form[data-form=sign] button[type=submit]');
@@ -191,6 +210,17 @@ try {
   await click('[data-act=agk][data-id=crew]'); await click('[data-act=agf][data-id=countersigned]');
   const apr = await p.$$eval('main tbody tr', r => r.map(x => x.textContent)); if (apr.length !== 1 || !apr[0].includes('Imran')) errs.push('approved crew agreements: ' + apr.join(' | '));
   await click('[data-act=agk][data-id=all]'); await over('agreements'); ok('Agreements filter by list and by status');
+  // the owner adds a cast template, approves it (owners may approve their own) and uses it for the cast list
+  await click('[data-act=agtab][data-id=templates]');
+  if (await p.locator('.tplcard').count() !== 4) errs.push('the template library should start with the 4 samples');
+  await click('[data-act=tpl-new]'); await p.fill('#tp-name', 'Swastik cast 2026'); await p.selectOption('#tp-kind', 'cast');
+  await p.fill('#tp-body', 'CAST AGREEMENT for {{ Production }}\n\nBetween {{company}} and {{legal_name}} (PAN {{pan}}).\n\n1. ROLE. {{job}} from {{joining}}.\n\n2. FEE. {{fee}}, tax deducted {{tds}}.\n\n3. PAYMENT. Within {{terms}} to {{bank}}.\n\n4. HOURS. {{overtime_rule}}');
+  await click('form[data-form=tpl] button[type=submit]');
+  const tid = await ev(() => S.templates.find(t => t.name === 'Swastik cast 2026')?.id); if (!tid) throw new Error('template not saved: ' + await text('#tp-err').catch(() => ''));
+  if (!(await ev(t => S.templates.find(x => x.id === t).body.includes('{{production}}'), tid))) errs.push('blank spelling not tidied');
+  await click(`[data-act=tpl-approve][data-id="${tid}"]`); await p.selectOption('select[data-change=tpl-assign][data-id=cast]', tid); await p.waitForTimeout(400);
+  if (!(await ev(t => S.prodTemplates.some(x => x.kind === 'cast' && x.templateId === t), tid))) errs.push('cast list did not take the template'); else ok('owner added, approved and assigned a cast template');
+  await over('templates'); await click('[data-act=agtab][data-id=people]');
   const sheets = await ev(() => Object.keys(workbookData(U.pid))); if (!['Artists','Crew','Vendors'].every(k => sheets.includes(k))) errs.push('Excel sheets: ' + sheets.join(', ')); else ok('Excel has separate Artists, Crew and Vendors sheets');
   const inv1 = await ev(() => workbookData(U.pid).Invoices[0]); if (inv1['Deductions (₹)'] !== 50 || inv1.Remarks !== 'Return the walkie') errs.push('Excel invoice row lacks deductions: ' + JSON.stringify(inv1));
   if (await p.$('main [data-act=adjust]')) errs.push('deductions still editable after Tally');
