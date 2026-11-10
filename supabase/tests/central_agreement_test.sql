@@ -13,7 +13,8 @@
 \set tina   'e1111111-0000-0000-0000-000000000003'
 select id as pid from productions limit 1 \gset
 select id as tara_crew from crew where user_id = :'tara' \gset
-update crew set kind = 'crew', dept = coalesce(dept, 'Camera'), job = coalesce(job, 'Camera Attendant'), joining = coalesce(joining, '2026-01-01') where id = :'tara_crew';
+-- that test picks any waiting invite, so pin the list it is on
+update crew set role = 'crew', dept = 'Camera', job = 'Camera Attendant', kind = 'crew', joining = coalesce(joining, '2026-01-01') where id = :'tara_crew';
 
 -- ---------------------------------------------------------------- Legal role
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -48,6 +49,8 @@ select save_template(jsonb_build_object('name','Swastik crew standard','kind','c
   E'CREW AGREEMENT for {{ Production }}\n\nBetween {{company}} and {{legal_name}} (PAN {{pan}}).\n\n1. ROLE. {{job}}, {{dept}}, from {{joining}} to {{end_date}}.\n\n2. FEE. {{fee}}. Tax is deducted at source {{tds}}.\n\n3. PAYMENT. Within {{terms}}, to {{bank}}.\n\n4. HOURS. {{overtime_rule}}\n\n5. CONFIDENTIALITY. Everything on set stays confidential.\n\n6. LAW. Courts at {{city}}.')) as tpl \gset
 select ok((select body like '%{{production}}%' and version = 1 and approved_at is null and source = 'upload' from agreement_templates where id = :'tpl'), 'blanks are tidied, the upload is kept as version 1, unapproved');
 select refused(format('select approve_template(%L)', :'tpl'), 'Someone else approves your own changes');
+select refused($$select approve_template((select id from agreement_templates where source = 'sample' limit 1))$$, 'sample text');
+select refused($$select send_agreement((select id from crew where user_id = 'e1111111-0000-0000-0000-000000000001'), repeat('Built-in agreement text. ', 12))$$, 'Someone else sends your own agreement');
 reset role;
 select as_user(:'manoj'); set role authenticated;
 select refused(format('select set_production_template(%L, %L, %L)', :'pid', 'crew', :'tpl'), 'Approve the template before using it');
@@ -136,10 +139,27 @@ select as_user(:'tara'); set role authenticated;
 select refused($$select note_agreement_query('$$ || :'q2' || $$', 'Please?')$$, 'This question is closed');
 select ok(close_agreement_query(:'q3', null) = 'withdrawn', 'Tara withdraws her own question');
 select refused($$select sign_agreement((select id from crew where user_id = 'd1111111-0000-0000-0000-000000000001'), 'Tara Shah', 'data:image/png;base64,AAA', 1)$$, 'changed while you were reading it. Read version 2');
+select refused($$select sign_agreement((select id from crew where user_id = 'd1111111-0000-0000-0000-000000000001'), 'Tara Shah', 'data:image/png;base64,AAA')$$, 'was updated. Reload CrewDesk, read version 2');
+select set_config('request.headers', '{"x-forwarded-for":"203.0.113.9, 10.0.0.1","user-agent":"TestBrowser/1.0"}', false);
 select sign_agreement(:'tara_crew', 'Tara Shah', 'data:image/png;base64,AAA', 2);
+select set_config('request.headers', 'not json', false);
+select ok((select ip = '203.0.113.9' and user_agent = 'TestBrowser/1.0' from agreement_evidence where crew_id = :'tara_crew' and event = 'signed'), 'with the network address and browser it came from');
+select ok((select count(*) from agreement_evidence where crew_id = :'tara_crew' and event = 'signed' and version = 2 and hash is not null and "by" = :'tara') = 1, 'the signature leaves an evidence record she can read');
+select ok(agreement_intact(:'tara_crew'), 'the stored text matches the fingerprint');
 select refused($$select raise_agreement_query((select id from crew where user_id = 'd1111111-0000-0000-0000-000000000001'), '1', null, 'Late question')$$, 'before the agreement is signed');
 reset role;
 select ok((select ag_status = 'signed' and ag_text like '%Weekly invoices are allowed%' from crew where id = :'tara_crew'), 'Tara signs version 2');
+select as_user(:'asha'); set role authenticated;
+select ok((select count(*) from agreement_evidence where crew_id = :'tara_crew') = 0, 'a Head of Department can’t read someone else’s signing evidence');
+reset role;
+select as_user(:'leela'); set role authenticated;
+select ok((select count(*) from agreement_evidence where crew_id = :'tara_crew') = 1, 'Legal can');
+reset role;
+update crew set ag_text = ag_text || ' (edited behind the scenes)' where id = :'tara_crew';
+select as_user(:'leela'); set role authenticated;
+select ok(not agreement_intact(:'tara_crew'), 'a change to signed text is caught by the fingerprint');
+reset role;
+update crew set ag_text = replace(ag_text, ' (edited behind the scenes)', '') where id = :'tara_crew';
 
 -- a deal change withdraws a sent agreement and its open questions
 select as_user(:'fowzan'); set role authenticated;
@@ -176,6 +196,26 @@ select ok(send_agreement(:'lex_crew', repeat('Built-in agreement text. ', 12)) =
 reset role;
 select ok((select ag_template is null and ag_text like 'Built-in agreement text.%' from crew where id = :'lex_crew'), 'and records no template');
 
+-- reminders go to whoever's turn it is, once a question has waited a day
+select as_user(:'tina'); set role authenticated;
+select raise_agreement_query(:'lex_crew', '1', null, 'Still hoping to start a week later.') as q5 \gset
+reset role;
+delete from notifications;
+select ok(send_agreement_reminders() = 0, 'no reminder on the first day');
+update agreement_queries set at = now() - interval '2 days' where id = :'q5';
+select ok(send_agreement_reminders() = 1, 'after a day, one reminder goes out');
+select ok(exists (select 1 from notifications where user_id = :'leela' and title = 'Tina Gomes is waiting for an answer on clause 1'), 'to Legal, whose turn it is');
+select as_user(:'leela'); set role authenticated;
+select note_agreement_query(:'q5', 'Which date works?');
+reset role;
+update agreement_query_notes set at = now() - interval '2 days' where query_id = :'q5';
+delete from notifications;
+select send_agreement_reminders();
+select ok(exists (select 1 from notifications where user_id = :'tina' and title like 'Your agreement: a reply is waiting%') and not exists (select 1 from notifications where user_id = :'leela'), 'once Legal replies, the reminder goes to the person instead');
+select as_user(:'leela'); set role authenticated;
+select refused(format('select revise_agreement(%L, repeat(''My own terms. '', 20), ''self'', ''{}'')', (select id from crew where user_id = :'leela')), 'Only an agreement waiting|Someone else changes your own');
+reset role;
+select ok(not has_function_privilege('anon', 'public.agreement_intact(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.send_agreement_reminders()', 'execute'), 'new functions are closed to the public');
 select ok(not has_function_privilege('authenticated', 'public.agreement_fields(uuid)', 'execute'), 'the filled-in fields can’t be read directly');
 select ok(not has_table_privilege('authenticated', 'public.agreement_queries', 'insert'), 'questions are written only through the checked functions');
 \echo ALL AGREEMENT TESTS PASSED

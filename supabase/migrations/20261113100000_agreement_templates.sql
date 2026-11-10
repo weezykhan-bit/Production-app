@@ -92,17 +92,17 @@ create table public.production_templates (
 );
 
 -- the blanks a template may use
-create function public.tpl_keys() returns text[] language sql immutable as $$
+create function public.tpl_keys() returns text[] language sql immutable set search_path = public as $$
   select array['name','legal_name','party','pan','gstin','address','phone','email','bank','job','dept','fee','rate','unit',
                'joining','end_date','terms','tds','overtime_rule','company','company_address','company_pan','company_gstin',
                'signatory','designation','production','format','city','today'] $$;
 -- {{ Name }} and {{name}} are the same blank
-create function public.tpl_normalise(b text) returns text language sql immutable as $$
+create function public.tpl_normalise(b text) returns text language sql immutable set search_path = public as $$
   select regexp_replace(b, '\{\{\s*([A-Za-z_]+)\s*\}\}', '{{\1}}', 'g') $$;
-create function public.template_blanks(b text) returns text[] language sql immutable as $$
+create function public.template_blanks(b text) returns text[] language sql immutable set search_path = public as $$
   select coalesce(array_agg(distinct m[1]) filter (where lower(m[1]) <> all (tpl_keys()) or m[1] <> lower(m[1])), '{}')
     from regexp_matches(tpl_normalise(b), '\{\{([^}]*)\}\}', 'g') m $$;
-create function public.tpl_lower(b text) returns text language plpgsql immutable as $$
+create function public.tpl_lower(b text) returns text language plpgsql immutable set search_path = public as $$
 declare k text; out text := tpl_normalise(b);
 begin
   for k in select distinct m[1] from regexp_matches(out, '\{\{([A-Za-z_]+)\}\}', 'g') m loop
@@ -157,6 +157,7 @@ begin
   select * into t from agreement_templates where id = p_id for update;
   perform must(t.id is not null and not t.archived, 'No such template');
   perform must(t.approved_at is null, 'This version is already approved');
+  perform must(t.source <> 'sample', 'This is sample text. Have your lawyer edit it first; the edited version can then be approved');
   perform must(admin_role() is not null or t.updated_by is distinct from auth.uid(),
                'Someone else approves your own changes: another lawyer, the CFO or the Commercial Head');
   update agreement_templates set approved_at = now(), approved_by = auth.uid() where id = p_id;
@@ -298,6 +299,7 @@ begin
   select * into c from crew where id = p_crew for update;
   perform must(c.id is not null and ag_staff(c.production_id), 'Only Legal, the Line Producer, Head of Production, CFO or Commercial Head can send agreements');
   perform must(c.user_id is not null, 'This person hasn’t joined yet');
+  perform must(c.user_id <> auth.uid(), 'Someone else sends your own agreement');
   perform must(c.ag_status = 'none', 'An agreement has already been sent');
   perform must(c.rate is not null and c.joining is not null and c.dept is not null and c.job is not null, 'Set the deal first');
   select * into pr from profiles where id = c.user_id;
@@ -355,6 +357,7 @@ begin
   perform must(q.id is not null and (mine or ag_staff(c.production_id)), 'Only the person or the people handling agreements can reply here');
   perform must(q.status = 'open', 'This question is closed');
   perform must(length(trim(coalesce(p_body, ''))) between 1 and 2000, 'Write a reply');
+  perform must((select count(*) from agreement_query_notes where query_id = p_query) < 60, 'This thread is full. Close it and ask a new question');
   insert into agreement_query_notes (query_id, by, body) values (p_query, auth.uid(), trim(p_body)) returning id into n;
   if mine then
     perform notify(ag_answerers(c.production_id), c.production_id, 'agreement', crew_name(c) || ' replied on clause ' || q.clause, left(trim(p_body), 160), 'agreements');
@@ -371,6 +374,7 @@ declare c crew; v int; closed int;
 begin
   select * into c from crew where id = p_crew for update;
   perform must(c.id is not null and ag_staff(c.production_id), 'Only Legal, the Line Producer, Head of Production, CFO or Commercial Head can change agreements');
+  perform must(c.user_id is distinct from auth.uid(), 'Someone else changes your own agreement');
   perform must(c.ag_status = 'sent', 'Only an agreement waiting for a signature can be changed');
   perform must(length(coalesce(p_text, '')) between 200 and 60000, 'The agreement text is missing');
   perform must(p_text is distinct from c.ag_text, 'Nothing changed in the text');
@@ -428,6 +432,7 @@ begin
     raise exception '% question% on this agreement % still open. Sign once they are answered or withdrawn',
       open_n, case when open_n = 1 then '' else 's' end, case when open_n = 1 then 'is' else 'are' end;
   end if;
+  perform must(p_version is not null or not exists (select 1 from agreement_versions v where v.crew_id = p_crew and v.at > c.ag_sent_at), 'This agreement was updated. Reload CrewDesk, read version ' || c.ag_version || ' and sign again');
   perform must(p_version is null or p_version = c.ag_version, 'The agreement changed while you were reading it. Read version ' || c.ag_version || ' and sign again');
   select * into pr from profiles where id = auth.uid();
   perform must(profile_ready(pr) and docs_ready(pr), 'Complete your profile and documents before signing');
@@ -495,6 +500,83 @@ revoke execute on function public.kyc_key(), public.kyc_enc(text), public.kyc_de
 revoke execute on function public.send_call_reminders(), public.send_task_reminders(), public.send_dpr_reminders(), public.send_attendance_reminders() from authenticated;
 -- the filled-in fields carry contact details; only the checked functions above use them
 revoke execute on function public.agreement_fields(uuid), public.agreement_reset() from authenticated;
+
+-- ================================================================ signing evidence
+-- One row each time an agreement is signed or approved: who, when, which version, the fingerprint, and the network
+-- address and browser the request came from. Readable by the person, the owners and Legal only (not all staff).
+create table public.agreement_evidence (
+  id          bigint generated always as identity primary key,
+  crew_id     uuid not null references public.crew on delete cascade,
+  event       text not null check (event in ('signed','countersigned')),
+  version     int,
+  hash        text,
+  by          uuid references auth.users on delete set null,
+  at          timestamptz not null default now(),
+  ip          text,
+  user_agent  text
+);
+create index agreement_evidence_crew_idx on public.agreement_evidence (crew_id);
+create function public.agreement_evidence_log() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare h jsonb := '{}';
+begin
+  if new.ag_status is distinct from old.ag_status and new.ag_status in ('signed','countersigned') then
+    -- never let an odd request header stop someone signing
+    begin h := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb; exception when others then h := '{}'; end;
+    insert into agreement_evidence (crew_id, event, version, hash, by, ip, user_agent)
+    values (new.id, new.ag_status, new.ag_version, new.ag_hash, auth.uid(),
+            nullif(trim(split_part(coalesce(h ->> 'x-forwarded-for', ''), ',', 1)), ''), left(h ->> 'user-agent', 400));
+  end if;
+  return null;
+end $$;
+create trigger agreement_evidence_log after update of ag_status on public.crew for each row execute function public.agreement_evidence_log();
+alter table public.agreement_evidence enable row level security;
+create policy "the person, owners and Legal" on public.agreement_evidence for select using (
+  exists (select 1 from crew c where c.id = crew_id and (c.user_id = (select auth.uid()) or prod_role(c.production_id) in ('cfo','commercial','legal'))));
+revoke insert, update, delete, truncate on public.agreement_evidence from anon, authenticated;
+revoke select on public.agreement_evidence from anon;
+revoke execute on function public.agreement_evidence_log() from public, anon, authenticated;
+
+-- the stored text still matches the fingerprint taken at signing
+create function public.agreement_intact(p_crew uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case when c.ag_hash is null then null
+              else c.ag_hash = encode(sha256(convert_to(c.ag_text || '|' || c.ag_signed_name || '|' || c.ag_signature, 'UTF8')), 'hex') end
+    from crew c where c.id = p_crew and (c.user_id = auth.uid() or prod_staff(c.production_id)) $$;
+
+-- ================================================================ questions nobody has answered for a day
+-- Whoever's turn it is gets one reminder a day: the answerers if the person spoke last, the person if staff did.
+create function public.send_agreement_reminders() returns int
+language plpgsql security definer set search_path = public as $$
+declare r record; n int := 0;
+begin
+  for r in
+    select q.id, q.clause, q.production_id, c.user_id, crew_name(c) as who,
+           coalesce((select x."by" from agreement_query_notes x where x.query_id = q.id order by x.id desc limit 1), q."by") as last_by,
+           coalesce((select max(x.at) from agreement_query_notes x where x.query_id = q.id), q.at) as last_at
+      from agreement_queries q join crew c on c.id = q.crew_id
+     where q.status = 'open' and c.ag_status = 'sent' and c.active and c.removed_at is null
+  loop
+    continue when r.last_at > now() - interval '24 hours';
+    if r.last_by is not distinct from r.user_id then
+      perform notify(ag_answerers(r.production_id), r.production_id, 'agreement', r.who || ' is waiting for an answer on clause ' || r.clause,
+                     'Asked ' || greatest(1, floor(extract(epoch from now() - r.last_at) / 86400))::int || ' day(s) ago. They can’t sign until it is answered.', 'agreements');
+    else
+      perform notify(array[r.user_id], r.production_id, 'agreement', 'Your agreement: a reply is waiting on clause ' || r.clause,
+                     'Reply or withdraw the question from My setup, then you can sign.', 'home');
+    end if;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+revoke execute on function public.send_agreement_reminders() from public, anon, authenticated;
+do $$ begin
+  perform cron.schedule('crewdesk-agreement-reminders', '32 12 * * *', 'select public.send_agreement_reminders()');
+exception when others then raise notice 'pg_cron not available here; agreement reminders are not scheduled (%)', sqlerrm;
+end $$;
+
+-- flagged by Supabase's checker: pin the search path
+do $$ begin alter function public.day_label(date) set search_path = public; exception when others then null; end $$;
 
 -- ================================================================ sample templates (a lawyer must review before approving)
 
@@ -617,3 +699,7 @@ For the Company: {{signatory}}, {{designation}}
 
 Signed electronically in CrewDesk.$t$);
 insert into public.agreement_template_versions (template_id, version, body) select id, 1, body from public.agreement_templates;
+
+-- everything created above: not callable without signing in
+revoke execute on all functions in schema public from public, anon;
+grant execute on function public.login_email(text), public.username_available(text) to anon;

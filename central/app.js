@@ -383,13 +383,13 @@ Date: ${fmtD(today())}
 
 BETWEEN ${c.legal}, PAN ${c.pan}${c.gstin ? `, GSTIN ${c.gstin}` : ''}, of ${c.address} ("the Production")
 
-AND ${u.legal || u.name}, PAN ${u.pan || '—'}${u.gstin ? `, GSTIN ${u.gstin}` : ''}, of ${u.address || '—'} ("the ${who}").
+AND ${u.legal || u.name}, PAN ${u.pan ? '••••••' + String(u.pan).slice(-4) : '—'}${u.gstin ? `, GSTIN ${u.gstin}` : ''}, of ${u.address || '—'} ("the ${who}").
 
 1. ENGAGEMENT. The ${who} is engaged as ${m.job} (${m.dept}) from ${fmtD(m.joining)}${m.end ? ` to ${fmtD(m.end)}` : ' until the end of the production schedule or earlier notice'}.
 
 2. FEE. ${inr(m.rate)} ${UNITS[m.unit]}${m.unit === 'episode' ? ', for each episode in which the Artist is called and works' : ''}, plus GST where the ${who} is registered, against invoices raised in CrewDesk. Days are confirmed by gate check-in. Tax is deducted at source${TDS[m.tds]?.rate ? ` under section ${TDS[m.tds].code} at ${TDS[m.tds].rate}%` : ' where the law requires it'}.
 
-3. PAYMENT. Within ${m.terms} days of the invoice being approved, to: ${bankLine(u)}.
+3. PAYMENT. Within ${m.terms} days of the invoice being approved, to: ${tplFields(m).bank}.
 
 4. WORKING DAY. 12 hours including a meal break. Overtime, travel days and holidays are paid only as agreed in writing in advance.
 
@@ -415,7 +415,9 @@ function todos(pid, uidv){
     mems.filter(m => m.ag?.status === 'signed').forEach(m => out.push({t:`Approve ${user(m.userId).name}’s signed agreement`, s:`${m.job} · ${rateText(m)}`, act:'open-person', id:m.id, b:'Review'}));
     mems.filter(m => !stageOf(m).d.deal).forEach(m => out.push({t:`Set ${user(m.userId).name}’s deal`, s:'Joined with the invite code; needs rate and joining date', act:'edit-deal', id:m.id, b:'Set deal'}));
   }
-  if (can.agStaff(r)) (S.agQueries || []).filter(q => q.pid === pid && q.status === 'open' && q.by !== uidv).forEach(q => { const m = member(q.memberId); if (m && m.userId !== uidv)
+  (S.agQueries || []).filter(q => q.pid === pid && q.status === 'open' && mine && q.memberId === mine.id && qTurn(q, mine) === 'person').forEach(q =>
+    out.push({t:`Reply on ${q.clause === 'General' ? 'your agreement' : 'clause ' + q.clause + ' of your agreement'}`, s:(q.notes || []).slice(-1)[0]?.body || q.body, act:'go', id:'home', b:'Reply'}));
+  if (can.agStaff(r)) (S.agQueries || []).filter(q => q.pid === pid && q.status === 'open').forEach(q => { const m = member(q.memberId); if (m && m.userId !== uidv && qTurn(q, m) === 'staff')
     out.push({t:`Answer ${user(m.userId)?.name || 'their'}’s question on ${q.clause === 'General' ? 'their agreement' : 'clause ' + q.clause}`, s:q.body, act:'open-person', id:m.id, b:'Answer'}); });
   if (can.agStaff(r)){
     mems.filter(m => stageOf(m).next === 'sent').forEach(m => out.push({t:`Send agreement to ${user(m.userId).name}`, s:'Profile and documents are complete', act:'send-ag', id:m.id, b:'Send'}));
@@ -733,6 +735,8 @@ const tplById = id => (S.templates || []).find(t => t.id === id);
 const tplFor = m => tplById((S.prodTemplates || []).find(x => x.pid === m.pid && x.kind === m.kind)?.templateId);
 const agQs = m => (S.agQueries || []).filter(q => q.memberId === m.id);
 const openQs = m => agQs(m).filter(q => q.status === 'open');
+// whose turn it is on an open question: whoever did not speak last
+const qTurn = (q, m) => { const last = (q.notes || []).length ? q.notes[q.notes.length - 1].by : q.by; return last === m.userId ? 'staff' : 'person'; };
 const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 // numbered paragraphs ("3. PAYMENT …") are the clauses people can ask about
 function clauses(txt){
@@ -763,8 +767,9 @@ function agreementBlock(m, canSign){
   const body = `<div class="agreement ag-cl" tabindex="0" aria-label="Agreement text">${clauses(txt).map(c => {
     const cq = c.n ? qs.filter(q => q.clause === c.n) : [], oq = cq.filter(q => q.status === 'open').length;
     return `<div class="cl${oq ? ' has-q' : ''}"><span class="cl-t">${esc(c.p)}</span>${c.n && (canAsk || cq.length) ? `<span class="cl-side">${cq.length ? `<a href="#q-${cq[0].id}" class="cl-n${oq ? ' open' : ''}">${plural(cq.length, 'question')}</a>` : ''}${canAsk ? `<button type="button" class="cl-ask" data-act="ag-ask" data-id="${m.id}" data-cl="${c.n}" aria-label="Ask about clause ${c.n}">Ask</button>` : ''}</span>` : ''}</div>`; }).join('')}</div>`;
-  const tools = a.status === 'sent' && (canAsk || staff) ? `<div class="row ag-tools">${canAsk ? `<button class="btn sm ghost" data-act="ag-ask" data-id="${m.id}" data-cl="General">${icon('chat', 15)}${mine ? 'Ask about something else' : 'Ask them about something'}</button>` : ''}
-    ${staff ? `<button class="btn sm" data-act="ag-revise" data-id="${m.id}">Change the agreement</button>` : ''}</div>` : '';
+  const tools = `<div class="row ag-tools"><button class="btn sm ghost" data-act="ag-read" data-id="${m.id}">${icon('doc', 15)}Read full screen</button><button class="btn sm ghost" data-act="ag-print" data-id="${m.id}">${icon('upload', 15)}Print or save PDF</button>
+    ${a.hash ? `<button class="btn sm ghost" data-act="ag-verify" data-id="${m.id}">${icon('lock', 15)}Check fingerprint</button><span class="small" id="agv-${m.id}" role="status"></span>` : ''}</div>` + (a.status === 'sent' && (canAsk || staff) ? `<div class="row ag-tools">${canAsk ? `<button class="btn sm ghost" data-act="ag-ask" data-id="${m.id}" data-cl="General">${icon('chat', 15)}${mine ? 'Ask about something else' : 'Ask them about something'}</button>` : ''}
+    ${staff ? `<button class="btn sm" data-act="ag-revise" data-id="${m.id}">Change the agreement</button>` : ''}</div>` : '');
   const thread = qs.length ? `<div class="agqs"><h4>Questions on this agreement ${open.length ? `<span class="chip warn">${open.length} open</span>` : '<span class="chip good">All answered</span>'}</h4>
     ${qs.slice().sort((x, y) => (x.status === 'open' ? 0 : 1) - (y.status === 'open' ? 0 : 1) || y.at - x.at).map(q => qCard(q, m, staff, mine)).join('')}</div>` : '';
   const signBlock = a.status === 'sent' ? (open.length ? `<p class="banner">${icon('chat', 16)}<span>Signing opens once ${open.length === 1 ? 'the open question is' : `the ${open.length} open questions are`} answered or withdrawn.</span></p>`
@@ -778,7 +783,8 @@ function agreementBlock(m, canSign){
 }
 function qCard(q, m, staff, mine){
   const who = id => user(id)?.name || 'Someone', st = {open:['Open','warn'], changed:['Changed in the agreement','good'], kept:['Clause kept as is','info'], withdrawn:['Withdrawn','']}[q.status];
-  const first = esc(who(m.userId).split(' ')[0]);
+  const first = esc(who(m.userId).split(' ')[0]), turn = q.status === 'open' ? qTurn(q, m) : null;
+  if (turn) st[0] = turn === 'staff' ? (mine ? 'Waiting for the production office' : 'Needs an answer') : (mine ? 'Needs your reply' : `Waiting for ${first}`), st[1] = (turn === 'staff') === !mine ? 'warn' : 'info';
   return `<article class="agq ${q.status}" id="q-${q.id}"><header class="spread"><b>${q.clause === 'General' ? 'General question' : 'Clause ' + esc(q.clause)}</b><span class="chip ${st[1]}">${st[0]}</span></header>
     ${q.excerpt ? `<blockquote>${esc(q.excerpt)}</blockquote>` : ''}
     <ol class="agq-log"><li><b>${esc(who(q.by))}</b> <time>${fmtT(q.at)}${q.version ? ` · version ${q.version}` : ''}</time><p>${esc(q.body)}</p></li>
@@ -790,6 +796,37 @@ function qCard(q, m, staff, mine){
   </article>`;
 }
 
+// the signed record on paper: text, signatures, fingerprint, versions and every question asked
+const fmtFull = t => new Date(t).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZoneName:'short'});
+function agPrintHtml(m){
+  const a = m.ag || {}, u = user(m.userId) || {}, p = proj(m.pid) || {}, who = id => esc(user(id)?.name || '—'), qs = agQs(m).slice().sort((x, y) => x.at - y.at);
+  return `<header><b>${esc(co().legal)}</b><span>${esc(p.name || '')} · ${esc(AG_TYPE[m.kind] || 'Agreement')}${a.version ? ` · version ${a.version}` : ''}</span></header>
+    <pre>${esc(a.text || agText(m))}</pre>
+    <section><h2>Signatures</h2>${a.signedAt ? `<div class="sigrow">${a.sig ? `<img src="${a.sig}" alt="">` : ''}<p><b>${esc(a.signedName || u.name)}</b><br>Signed electronically ${fmtFull(a.signedAt)}${a.version ? `, version ${a.version}` : ''}</p></div>` : '<p>Not signed yet.</p>'}
+      ${a.counterAt ? `<p><b>${who(a.counterBy)}</b>, for ${esc(co().legal)}<br>Approved ${fmtFull(a.counterAt)}</p>` : a.signedAt ? '<p>Waiting for the production’s approval.</p>' : ''}
+      ${a.hash ? `<p class="fp">SHA-256 fingerprint of the text, typed name and signature:<br>${esc(a.hash)}</p>` : ''}</section>
+    ${(a.versions || []).length > 1 ? `<section><h2>Versions</h2><ol>${a.versions.map(v => `<li>Version ${v.version} · ${v.at ? fmtFull(v.at) : ''} · ${who(v.by)} · ${esc(v.note || '')}</li>`).join('')}</ol></section>` : ''}
+    ${qs.length ? `<section><h2>Questions asked before signing</h2>${qs.map(q => `<div class="pq"><p><b>${q.clause === 'General' ? 'General' : 'Clause ' + esc(q.clause)}</b> · ${who(q.by)} · ${fmtFull(q.at)}<br>${esc(q.body)}</p>
+      ${(q.notes || []).map(n => `<p class="in">${who(n.by)} · ${fmtFull(n.at)}<br>${esc(n.body)}</p>`).join('')}<p class="in"><i>${{open:'Still open', changed:'Agreement changed', kept:'Clause kept as it is', withdrawn:'Withdrawn'}[q.status]}${q.outcome ? ': ' + esc(q.outcome) : ''}</i></p></div>`).join('')}</section>` : ''}
+    <footer>Printed from CrewDesk ${fmtFull(Date.now())}. The electronic record in CrewDesk is the original.</footer>`;
+}
+// Word files: keep automatic numbering (1., 1.1, a bullet) that plain text extraction drops
+function htmlToAgText(html){
+  const doc = new DOMParser().parseFromString(html, 'text/html'), out = [];
+  const txt = el => el.textContent.replace(/\s+/g, ' ').trim();
+  const own = li => [...li.childNodes].filter(n => !(n.nodeType === 1 && /^(OL|UL)$/.test(n.tagName))).map(n => n.textContent).join('').replace(/\s+/g, ' ').trim();
+  const list = (el, prefix) => { let k = 0; [...el.children].forEach(li => { if (li.tagName !== 'LI') return; k++;
+    const num = el.tagName === 'OL' ? (prefix ? `${prefix}.${k}` : String(k)) : '', t = own(li);
+    if (t) out.push(el.tagName === 'OL' ? `${num}. ${t}` : `• ${t}`);
+    [...li.children].filter(c => /^(OL|UL)$/.test(c.tagName)).forEach(c => list(c, num)); }); };
+  const walk = el => [...el.children].forEach(c => {
+    if (/^(OL|UL)$/.test(c.tagName)) list(c, '');
+    else if (c.tagName === 'TABLE') [...c.querySelectorAll('tr')].forEach(tr => { const r = [...tr.children].map(txt).filter(Boolean).join(' | '); if (r) out.push(r); });
+    else if (/^(P|H[1-6]|BLOCKQUOTE)$/.test(c.tagName)){ const t = txt(c); if (t) out.push(t); }
+    else walk(c); });
+  walk(doc.body);
+  return out.join('\n\n');
+}
 function templatesPanel(){
   const r = myRole(), ed = can.templates(), list = (S.templates || []).filter(t => !t.archived), cur = k => (S.prodTemplates || []).find(x => x.pid === U.pid && x.kind === k)?.templateId || '';
   const status = t => t.approvedAt ? ['Approved', 'good'] : t.source === 'sample' ? ['Sample · needs a lawyer’s review', 'warn'] : ['Needs approval', 'gold'];
@@ -804,7 +841,7 @@ function templatesPanel(){
       <h3>${esc(t.name)}</h3><p class="small muted">Version ${t.version} · ${t.fileName ? `from ${esc(t.fileName)} · ` : ''}${t.at ? `updated ${fmtT(t.at)}` : ''}${t.by ? ` by ${esc(user(t.by)?.name || 'Legal')}` : ''}${inUse ? ` · used on ${plural(inUse, 'list')}` : ''}</p>
       <p class="tplsnip">${esc(tplNorm(t.body).slice(0, 220))}…</p>
       <div class="row"><button class="btn sm" data-act="tpl-view" data-id="${t.id}">Read</button>${ed ? `<button class="btn sm ghost" data-act="tpl-edit" data-id="${t.id}">Edit</button>` : ''}
-        ${ed && !t.approvedAt && (isOwner(me()?.title) || t.by !== S.session) ? `<button class="btn sm primary" data-act="tpl-approve" data-id="${t.id}">Approve</button>` : ''}
+        ${ed && !t.approvedAt && t.source !== 'sample' && (isOwner(me()?.title) || t.by !== S.session) ? `<button class="btn sm primary" data-act="tpl-approve" data-id="${t.id}">Approve</button>` : ''}
         ${ed ? `<button class="btn sm ghost" data-act="tpl-archive" data-id="${t.id}">Archive</button>` : ''}</div></article>`; }).join('') || '<div class="empty">No templates yet.</div>'}</div>`;
 }
 // a person on this show to preview a template with
@@ -817,8 +854,8 @@ async function readTplFile(f){
   if (/\.txt$/i.test(f.name) || f.type === 'text/plain') return f.text();
   if (!/\.docx$/i.test(f.name)) throw new Error('Upload a Word file (.docx) or a text file (.txt). For a PDF, copy its text and paste it in.');
   if (!window.mammoth) await loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js');
-  const r = await window.mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()});
-  return r.value.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  const r = await window.mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});
+  return htmlToAgText(r.value).trim();
 }
 function tplWarn(){
   const b = $('#tp-body')?.value || '', bad = tplBad(b), w = $('#tp-warn'), n = $('#tp-count'), e = $('#tp-err');
@@ -858,6 +895,12 @@ function agModals(M){
       <form class="stack" data-form="send-ag"><label class="f">Agreement<select id="sa-tpl" data-change="sa-tpl">${def ? '' : '<option value="">Built-in CrewDesk agreement</option>'}${list.map(t => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)} · v${t.version}${t.id === def ? ' (this list’s template)' : ''}</option>`).join('')}</select></label>
       <div class="agreement" tabindex="0" aria-label="Agreement preview" id="sa-prev">${esc(text || 'Loading the preview…')}</div>
       <p class="err" id="sa-err"></p><div class="row"><button class="btn primary" type="submit">Send to ${esc(user(m.userId).name.split(' ')[0])}</button><button class="btn ghost" type="button" data-act="close-modal">Cancel</button></div></form>`;
+  }
+  if (M.type === 'ag-read'){
+    const m = member(M.id), a = m.ag || {};
+    return `${head(`${AG_TYPE[m.kind] || 'Agreement'} · ${esc(user(m.userId).name)}`, a.version ? `Version ${a.version}` : '')}
+      <div class="agreement ag-full" tabindex="0" aria-label="Agreement text">${esc(a.text || agText(m))}</div>
+      <div class="row"><button class="btn" data-act="ag-print" data-id="${m.id}">Print or save PDF</button><button class="btn ghost" data-act="close-modal">Close</button></div>`;
   }
   if (M.type === 'ag-ask'){
     const m = member(M.id), c = clauses(m.ag?.text || agText(m)).find(x => x.n === M.cl), mine = m.userId === S.session;
@@ -922,7 +965,7 @@ function agreementsView(){
   const mems = ofKind.filter(m => U.agf === 'all' || agState(m) === U.agf);
   const tabs = `<div class="seg" role="group" aria-label="Agreements or templates"><button data-act="agtab" data-id="people" aria-pressed="${U.agTab !== 'templates'}">People</button><button data-act="agtab" data-id="templates" aria-pressed="${U.agTab === 'templates'}">Templates<span class="n">${(S.templates || []).filter(t => !t.archived).length}</span></button></div>`;
   if (U.agTab === 'templates') return `${projHead('Agreements', '<p class="muted">Legal’s templates, and which one each list on this show uses.</p>')}${tabs}${templatesPanel()}`;
-  const asking = (S.agQueries || []).filter(q => q.pid === U.pid && q.status === 'open');
+  const asking = (S.agQueries || []).filter(q => q.pid === U.pid && q.status === 'open' && member(q.memberId) && qTurn(q, member(q.memberId)) === 'staff');
   return `${projHead('Agreements', '<p class="muted">An agreement can be sent once the deal, profile and documents are complete. People can ask about any clause before signing. The CFO or Commercial Head approves it after the person signs.</p>')}
   ${tabs}${asking.length ? `<p class="banner">${icon('chat', 16)}<span>${plural(asking.length, 'question')} on agreements ${asking.length === 1 ? 'is' : 'are'} waiting for an answer. Open the person to reply.</span></p>` : ''}
   ${kindTabs('agk', U.agk, everyone)}
@@ -1972,9 +2015,18 @@ const ACT = {
   copy: el => { const t = el.dataset.text; const ok = () => toast('Copied'); try { navigator.clipboard.writeText(t).then(ok, () => toast('Couldn’t copy; select the text and copy it yourself.')); } catch { toast('Couldn’t copy; select the text and copy it yourself.'); } },
   nudge: el => { const m = member(el.dataset.id); log(U.pid, 'onboard', `Sent a reminder to ${user(m.userId).name}`, {memberId:m.id}); done(`Reminder sent to ${user(m.userId).name} (demo: nothing actually goes out)`); },
   'send-ag': el => { const m = member(el.dataset.id); if (stageOf(m).next !== 'sent') return toast('Deal, profile and documents must be complete first.');
+    if (m.userId === S.session) return toast('Someone else sends your own agreement.');
     U.modal = {type:'send-ag', id:m.id}; renderLayer(); },
   'sa-tpl': t => { U.modal.tpl = t.value; U.modal.preview = null; const m = member(U.modal.id); $('#sa-prev').textContent = t.value ? fillTpl(tplById(t.value)?.body, m) : agText(m); },
   agtab: el => { U.agTab = el.dataset.id; render(); },
+  'ag-read': el => { U.modal = {type:'ag-read', id:el.dataset.id}; renderLayer(); },
+  'ag-print': el => { const m = member(el.dataset.id); let box = $('#printout'); if (!box){ box = document.createElement('div'); box.id = 'printout'; document.body.appendChild(box); }
+    box.innerHTML = agPrintHtml(m); document.title = `${AG_TYPE[m.kind] || 'Agreement'} - ${user(m.userId).name}`;
+    const img = box.querySelector('img'), go = () => { try { window.print(); } catch { toast('Printing isn’t available here. Open CrewDesk in your browser and try again.'); } };
+    if (img && !img.complete) img.onload = img.onerror = go; else setTimeout(go, 50); },
+  'ag-verify': async el => { const m = member(el.dataset.id), a = m.ag || {}, out = $('#agv-' + m.id); if (!a.hash || !out) return;
+    const h = await sha256((a.text || '') + '|' + (a.signedName || '') + '|' + (a.sig || '')), ok = h === a.hash;
+    out.textContent = ok ? '✓ The text matches the fingerprint taken at signing.' : '✕ The text does not match the fingerprint. Tell the CFO.'; out.style.color = `var(--${ok ? 'good' : 'bad'})`; },
   'ag-diff': el => { U.agDiff = U.agDiff === el.dataset.id ? null : el.dataset.id; renderLayer(); render(); },
   'ag-ask': el => { U.modal = {type:'ag-ask', id:el.dataset.id, cl:el.dataset.cl}; renderLayer(); $('#aq-body')?.focus(); },
   'ag-revise': el => { U.modal = {type:'ag-revise', id:el.dataset.id, q:el.dataset.q || null}; renderLayer(); },

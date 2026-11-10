@@ -1,0 +1,18 @@
+name: Database checks
+on:
+  push:
+    paths: ['supabase/**', 'tests/db.sh', '.github/workflows/db-tests.yml']
+  pull_request:
+    paths: ['supabase/**', 'tests/db.sh']
+permissions:
+  contents: read
+jobs:
+  db:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Postgres
+        run: sudo systemctl start postgresql && sudo -u postgres psql -Atc "select version()"
+      - name: Run every database check
+        run: |
+          chmod -R a+rX . && sudo -u postgres env PGHOST=/var/run/postgresql bash tests/db.sh

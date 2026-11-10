@@ -359,6 +359,25 @@ details.sec .body{padding:0 16px 16px;display:grid;gap:14px}
 .blank{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:6px;padding:3px 8px;font:12px var(--f-mono);cursor:pointer}
 .blank:hover{border-color:var(--accent);color:var(--accent)}
 .tplbody{max-height:52vh}
+.agreement.ag-full{max-height:none;font-size:14px;line-height:1.7}
+.dialog.dlg-ag-read{width:min(860px,100%)}
+#printout{display:none}
+@media print{
+  body>*:not(#printout){display:none!important}
+  #printout{display:block;color:#000;background:#fff;font:11pt/1.5 Georgia,'Times New Roman',serif;padding:0}
+  #printout header{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid #000;padding-bottom:6pt;margin-bottom:12pt;font-size:10pt}
+  #printout pre{white-space:pre-wrap;font:inherit;margin:0 0 14pt}
+  #printout h2{font:700 11pt Georgia,serif;margin:14pt 0 6pt;border-top:1px solid #999;padding-top:8pt}
+  #printout section{break-inside:avoid-page}
+  #printout .sigrow{display:flex;gap:16pt;align-items:flex-end}
+  #printout .sigrow img{height:48pt;max-width:180pt}
+  #printout .fp{font:8.5pt/1.4 'Courier New',monospace;overflow-wrap:anywhere}
+  #printout .pq{margin-bottom:8pt;break-inside:avoid}
+  #printout .pq .in{margin:2pt 0 2pt 14pt}
+  #printout p{margin:0 0 4pt}
+  #printout footer{margin-top:16pt;font-size:8.5pt;color:#444}
+  @page{margin:18mm}
+}
 .tplbody mark{background:#D3EAE7;color:#0B6B66;border-radius:3px;padding:0 2px}
 .tplbody mark.bad{background:#F6DCD8;color:#B03A2E}
 #tp-warn code{font:12px var(--f-mono)}
